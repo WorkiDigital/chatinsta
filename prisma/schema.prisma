@@ -68,8 +68,25 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
+  mcpApiKeys        McpApiKey[]
 
   @@index([ownerId])
+}
+
+model McpApiKey {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  tokenPrefix String
+  tokenHash   String    @unique
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, revokedAt])
 }
 
 model WorkspaceMember {
