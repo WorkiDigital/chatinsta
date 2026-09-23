@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "@/lib/i18n/provider";
-import { createClient } from "@/lib/supabase/client";
+import { signUpAction, signInAction } from "@/app/login/actions";
 
 type Mode = "sign-in" | "sign-up";
 
@@ -13,60 +13,21 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkEmail, setCheckEmail] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
 
-    const supabase = createClient();
+    const action = mode === "sign-up" ? signUpAction : signInAction;
+    const result = await action(email, password);
 
-    if (mode === "sign-up") {
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(callbackUrl)}`,
-        },
-      });
-      if (signUpError) {
-        setError(signUpError.message);
-        setBusy(false);
-        return;
-      }
-      // Email confirmation is on by default: a session with no confirmed
-      // identity comes back with no active session yet.
-      if (!data.session) {
-        setCheckEmail(true);
-        setBusy(false);
-        return;
-      }
-      window.location.assign(callbackUrl);
-      return;
-    }
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (signInError) {
-      setError(signInError.message);
+    if (!result.success) {
+      setError(result.error);
       setBusy(false);
       return;
     }
     window.location.assign(callbackUrl);
-  }
-
-  if (checkEmail) {
-    return (
-      <div className="text-center py-4">
-        <h2 className="text-lg font-semibold mb-2">{t("Check your email")}</h2>
-        <p className="text-sm text-muted">
-          {t("We sent you a confirmation link. Open it on this device to finish creating your account.")}
-        </p>
-      </div>
-    );
   }
 
   return (
@@ -84,7 +45,7 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
           placeholder="you@company.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full px-4 py-3 rounded bg-surface border border-border text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none transition-colors"
+          className="w-full px-4 py-3 rounded bg-surface border border-border text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
         />
       </div>
 
@@ -97,12 +58,12 @@ export default function LoginForm({ callbackUrl }: { callbackUrl: string }) {
           name="password"
           type="password"
           required
-          minLength={6}
+          minLength={8}
           autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-4 py-3 rounded bg-surface border border-border text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none transition-colors"
+          className="w-full px-4 py-3 rounded bg-surface border border-border text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
         />
       </div>
 

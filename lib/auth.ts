@@ -1,6 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { createSession, destroySession, getSessionUserId } from "@/lib/auth/session";
+import { isEmailAllowedToSignIn } from "@/lib/env";
 
 export type AppSession = {
   user: {
@@ -9,47 +11,21 @@ export type AppSession = {
   };
 } | null;
 
-/**
- * Maps the signed-in Supabase user onto our own Prisma `User` row, creating
- * it on first sight. Workspace, WorkspaceMember, etc. all key off this
- * Prisma id (a cuid), not the Supabase uuid, so the rest of the app never has
- * to know Supabase Auth exists.
- */
-async function syncPrismaUser(supabaseId: string, email: string | null) {
-  const existing = await prisma.user.findUnique({ where: { supabaseId } });
-  if (existing) return existing;
-
-  // A Prisma user with this email can already exist if it was created before
-  // this project switched to Supabase Auth, or invited-by-email before ever
-  // signing up. Link the accounts instead of creating a duplicate.
-  if (email) {
-    const byEmail = await prisma.user.findUnique({ where: { email } });
-    if (byEmail) {
-      return prisma.user.update({
-        where: { id: byEmail.id },
-        data: { supabaseId },
-      });
-    }
-  }
-
-  return prisma.user.create({ data: { supabaseId, email } });
-}
-
 export async function auth(): Promise<AppSession> {
-  const supabase = await createClient();
-  const {
-    data: { user: supabaseUser },
-  } = await supabase.auth.getUser();
+  const userId = await getSessionUserId();
+  if (!userId) return null;
 
-  if (!supabaseUser) return null;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true },
+  });
+  if (!user) return null;
 
-  const user = await syncPrismaUser(supabaseUser.id, supabaseUser.email ?? null);
   return { user: { id: user.id, email: user.email } };
 }
 
 export async function getCurrentUserId(): Promise<string | null> {
-  const session = await auth();
-  return session?.user?.id ?? null;
+  return getSessionUserId();
 }
 
 export async function getCurrentWorkspaceId(): Promise<string | null> {
@@ -65,4 +41,49 @@ export async function getCurrentWorkspaceId(): Promise<string | null> {
   });
   const createdWorkspace = await ensureWorkspaceForUser(userId, user?.email);
   return createdWorkspace.id;
+}
+
+export type AuthResult = { success: true } | { success: false; error: string };
+
+export async function signUp(email: string, password: string): Promise<AuthResult> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!isEmailAllowedToSignIn(normalizedEmail)) {
+    return { success: false, error: "This email isn't allowed to sign up." };
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  // A row can already exist from a workspace invitation (no password yet) or
+  // a pre-migration Supabase-auth account. Either way, claiming it with a
+  // password here is correct — it's not a second account.
+  if (existing?.passwordHash) {
+    return { success: false, error: "An account with this email already exists." };
+  }
+
+  const passwordHash = hashPassword(password);
+  const user = existing
+    ? await prisma.user.update({ where: { id: existing.id }, data: { passwordHash } })
+    : await prisma.user.create({ data: { email: normalizedEmail, passwordHash } });
+
+  await ensureWorkspaceForUser(user.id, user.email);
+  await createSession(user.id);
+  return { success: true };
+}
+
+export async function signIn(email: string, password: string): Promise<AuthResult> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+  if (!user?.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    return { success: false, error: "Wrong email or password." };
+  }
+  if (!isEmailAllowedToSignIn(normalizedEmail)) {
+    return { success: false, error: "This email isn't allowed to sign in." };
+  }
+
+  await createSession(user.id);
+  return { success: true };
+}
+
+export async function signOut(): Promise<void> {
+  await destroySession();
 }

@@ -1,0 +1,46 @@
+# OpenReply — VPS deployment (web + worker + cron in one stack)
+#
+# Uses your existing Supabase (Postgres) and Upstash (Redis) — no local
+# database containers needed. Run:
+#
+#   docker compose -f docker-compose.vps.yml up -d --build
+#
+# All three services share the same image (built once) and .env file; only
+# the command differs per service. See docs/deploy-dokploy.md for the "why"
+# behind each of these (same gotchas apply to any non-Vercel host).
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"
+    # Migrations run here (container start), not during the Docker build —
+    # the build stage has no network access to the database.
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["npm", "run", "worker"]
+    depends_on:
+      web:
+        condition: service_healthy
+
+  cron:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CRON_BASE_URL: http://web:3000
+    command: ["sh", "scripts/cron.sh"]
+    depends_on:
+      web:
+        condition: service_healthy

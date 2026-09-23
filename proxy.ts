@@ -1,45 +1,18 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_PREFIXES = ["/dashboard", "/automations", "/logs", "/settings"];
+const SESSION_COOKIE = "openreply_session";
 
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  // Supabase's JWT access token is short-lived; refreshing it here (and the
-  // cookie that carries it) on every request keeps Server Components from
-  // seeing a session that silently expired mid-visit.
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const isAuthenticated = Boolean(user);
-
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isProtected = PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
   const isLogin = pathname === "/login";
+  // Cookie presence only — cheap, no DB round trip. A stale/expired token
+  // still lands on a protected page, but auth() there re-validates against
+  // the Session table and redirects if it's actually invalid.
+  const isAuthenticated = request.cookies.has(SESSION_COOKIE);
 
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL("/login", request.url);
@@ -51,7 +24,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

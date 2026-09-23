@@ -12,6 +12,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { zernioLink } from "@/lib/zernio-links";
 import { usePathname } from "next/navigation";
+import { signOutAction } from "@/app/login/sign-out-action";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard" },
@@ -100,6 +101,14 @@ export default function Sidebar({
           <div className="mb-4"><LanguageSwitcher /></div>
           <p className="text-sm text-foreground truncate">{workspaceName}</p>
           <p className="text-xs text-muted">{t("Self-hosted")}</p>
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="mt-2 text-xs text-muted hover:text-foreground underline underline-offset-2"
+            >
+              {t("Sign out")}
+            </button>
+          </form>
           <a
             href={zernioLink({ placement: "sidebar" })}
             target="_blank"

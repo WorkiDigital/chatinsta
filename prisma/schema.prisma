@@ -11,11 +11,14 @@ datasource db {
 
 model User {
   id            String    @id @default(cuid())
-  // Links this row to auth.users.id in Supabase Auth, which owns the actual
-  // credential (password hash, email confirmation, etc). Nullable because
-  // rows created via WorkspaceInvitation can exist before the invitee ever
-  // signs up.
+  // Kept from the Supabase Auth era: rows created before this switch may
+  // still carry one, and it's a convenient stable link if this project ever
+  // re-adopts an external identity provider. Unused by the self-hosted
+  // email+password auth below.
   supabaseId    String?   @unique
+  // Null for a row created via WorkspaceInvitation before the invitee ever
+  // signs up, or for the legacy Supabase-auth rows this migration inherits.
+  passwordHash  String?
   name          String?
   email         String?   @unique
   emailVerified DateTime?
@@ -23,9 +26,25 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  sessions          Session[]
   ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
   workspaceMembers  WorkspaceMember[]
   sentInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
+}
+
+// Self-hosted session store. The cookie carries only the raw token; this
+// table stores its SHA-256 hash, so a database dump alone can't be replayed
+// as a live session.
+model Session {
+  id           String   @id @default(cuid())
+  tokenHash    String   @unique
+  userId       String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Workspace {
