@@ -1,21 +1,60 @@
-# OpenReply — VPS deployment (web + worker + cron in one stack)
+# OpenReply — full VPS stack: Postgres, Redis, web, worker, cron.
 #
-# Uses your existing Supabase (Postgres) and Upstash (Redis) — no local
-# database containers needed. Run:
+# Everything self-hosted, nothing external (no Supabase, no Upstash). Run:
 #
 #   docker compose -f docker-compose.vps.yml up -d --build
 #
-# All three services share the same image (built once) and .env file; only
-# the command differs per service. See docs/deploy-dokploy.md for the "why"
-# behind each of these (same gotchas apply to any non-Vercel host).
+# web/worker/cron share the same image (built once from the repo's
+# Dockerfile) and .env file; only the command differs per service. See
+# docs/deploy-dokploy.md for the "why" behind each of these — same gotchas
+# apply to any non-Vercel host.
+#
+# .env only needs to set the app-level vars (NEXTAUTH_URL, NEXTAUTH_SECRET,
+# CRON_SECRET, ENCRYPTION_KEY, ALLOWED_EMAILS, Meta/Instagram vars). Do NOT
+# put DATABASE_URL or REDIS_URL in .env — they're set below to point at the
+# postgres/redis services in this same stack, which .env would override.
 
 services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openreply
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   web:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/openreply
+      REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     # Migrations run here (container start), not during the Docker build —
     # the build stage has no network access to the database.
     command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
@@ -29,6 +68,9 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/openreply
+      REDIS_URL: redis://redis:6379
     command: ["npm", "run", "worker"]
     depends_on:
       web:
@@ -39,8 +81,14 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/openreply
+      REDIS_URL: redis://redis:6379
       CRON_BASE_URL: http://web:3000
     command: ["sh", "scripts/cron.sh"]
     depends_on:
       web:
         condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
