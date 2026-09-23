@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "vercel-build": "prisma generate && DATABASE_URL=\"${DIRECT_URL:-$DATABASE_URL}\" prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "prisma generate",
@@ -18,7 +17,6 @@
     "@modelcontextprotocol/server": "^2.1.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
-    "@vercel/analytics": "^2.0.1",
     "bullmq": "^5.76.4",
     "ioredis": "^5.10.1",
     "next": "^16.2.6",
