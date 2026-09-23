@@ -14,11 +14,9 @@
 # put DATABASE_URL or REDIS_URL in .env — they're set below to point at the
 # postgres/redis services in this same stack, which .env would override.
 #
-# The Postgres password is hardcoded below (not a ${VAR}) because several
-# Compose-as-a-service panels only expose env vars to the containers, not to
-# the file's own variable substitution step. Change R4I_oR7cZQ3EhUvzFheBR_7sSLFufmg6
-# to your own value before deploying — and keep every occurrence in this
-# file identical, since it appears in four places.
+# POSTGRES_PASSWORD is read from the .env file created by EasyPanel. The
+# required-value syntax makes deployment fail early instead of starting with
+# an empty or default database password.
 
 services:
   postgres:
@@ -27,7 +25,7 @@ services:
     environment:
       POSTGRES_DB: openreply
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: R4I_oR7cZQ3EhUvzFheBR_7sSLFufmg6
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in EasyPanel}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -52,10 +50,8 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:R4I_oR7cZQ3EhUvzFheBR_7sSLFufmg6@postgres:5432/openreply
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in EasyPanel}@postgres:5432/openreply
       REDIS_URL: redis://redis:6379
-    ports:
-      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +71,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:R4I_oR7cZQ3EhUvzFheBR_7sSLFufmg6@postgres:5432/openreply
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in EasyPanel}@postgres:5432/openreply
       REDIS_URL: redis://redis:6379
     command: ["npm", "run", "worker"]
     depends_on:
@@ -87,7 +83,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:R4I_oR7cZQ3EhUvzFheBR_7sSLFufmg6@postgres:5432/openreply
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in EasyPanel}@postgres:5432/openreply
       REDIS_URL: redis://redis:6379
       CRON_BASE_URL: http://web:3000
     command: ["sh", "scripts/cron.sh"]
