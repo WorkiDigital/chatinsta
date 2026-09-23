@@ -262,6 +262,20 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   });
 
   for (const automation of automations) {
+    // Never answer the account's own comments (e.g. our own public replies).
+    // Some providers report the author with an id other than instagramId, so
+    // compare usernames as well.
+    const ownUsername = automation.instagramAccount.username
+      ?.replace(/^@/, "")
+      .toLowerCase();
+    if (
+      commenterId === automation.instagramAccount.instagramId ||
+      (ownUsername &&
+        commenterName?.replace(/^@/, "").toLowerCase() === ownUsername)
+    ) {
+      continue;
+    }
+
     // "Any word" campaigns fire on every comment; otherwise require a keyword hit.
     const matchResult = automation.matchAnyWord
       ? { matched: true, matchedKeyword: null }
