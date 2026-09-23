@@ -3,6 +3,7 @@ import { getCurrentUserId, getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import {
   calculateCtr,
+  ANY_WORD_KEYWORD,
   normalizeTopKeywords,
   summarizeDmStatuses,
 } from "@/lib/tracking/analytics";
@@ -179,12 +180,28 @@ export async function GET(request: NextRequest) {
       _count: row._count._all,
     }))
   );
-  const topKeywords = normalizeTopKeywords(
-    topKeywordRows.map((row) => ({
+  // "Any word" campaigns match every comment, so their logs carry no
+  // matchedKeyword. Count them under a sentinel the page renders as "Any
+  // comment" — otherwise such a workspace never sees anything in this panel.
+  // Button taps are follow-ups to an already-counted comment, so skip them.
+  const anyWordCount = await prisma.dmLog.count({
+    where: {
+      workspaceId,
+      matchedKeyword: null,
+      automation: { matchAnyWord: true },
+      commentText: { not: "(button tap)" },
+      ...accountFilter,
+    },
+  });
+  const topKeywords = normalizeTopKeywords([
+    ...topKeywordRows.map((row) => ({
       matchedKeyword: row.matchedKeyword,
       _count: row._count._all,
-    }))
-  );
+    })),
+    ...(anyWordCount > 0
+      ? [{ matchedKeyword: ANY_WORD_KEYWORD, _count: anyWordCount }]
+      : []),
+  ]);
 
   const firstName =
     user?.name?.trim().split(/\s+/)[0] ||

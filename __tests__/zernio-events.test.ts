@@ -23,7 +23,7 @@ describe('Zernio event boundary', () => {
   });
   it('excludes self comments and outgoing message echoes', () => {
     const comment = normalizeZernioEvent({ payload: { ...envelope, event: 'comment.received', comment: { id: 'c', platformPostId: 'p', text: 'LINK', author: { id: 'ig1' } } }, account });
-    expect(parseCommentEvents(comment!)).toEqual([]);
+    expect(comment).toBeNull();
     expect(normalizeZernioEvent({ payload: { ...envelope, event: 'message.received', message: { platformMessageId: 'm', direction: 'outgoing', text: 'LINK', sender: { id: 'person1' } } }, account })).toBeNull();
   });
   it('maps postbacks without also triggering a keyword DM', () => {
@@ -34,6 +34,8 @@ describe('Zernio event boundary', () => {
   it('maps inbound story text and read receipts to their existing handlers', () => {
     const result = normalizeZernioEvent({ account, payload: { ...envelope, event: 'message.received', message: { platformMessageId: 'mid', direction: 'incoming', text: 'LINK', sender: { id: 'person1' } } } });
     expect(parseMessageEvents(result!)[0]).toEqual({ instagramAccountId: 'ig1', messageId: 'mid', messageText: 'LINK', senderId: 'person1' });
+    const ownReply = normalizeZernioEvent({ account: { ...account, username: 'MyShop' }, payload: { ...envelope, event: 'comment.received', comment: { id: 'c2', platformPostId: 'p', text: 'Olha o teu Direct', author: { id: 'zernio-author-9', username: 'myshop' } } } });
+    expect(ownReply).toBeNull();
     const read = normalizeZernioEvent({ account, payload: { ...envelope, event: 'message.read', conversation: { participantId: 'person1' }, statusAt: '2026-09-08T00:00:00Z' } });
     expect(parseReadEvents(read!)[0]).toEqual({ instagramAccountId: 'ig1', userId: 'person1', watermark: 1788825600000 });
   });

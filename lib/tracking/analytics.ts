@@ -1,5 +1,8 @@
 const SKIPPED_PREFIX = "SKIPPED_";
 
+/** Top-keyword bucket for "any word" campaigns, which match no keyword. */
+export const ANY_WORD_KEYWORD = "__ANY_WORD__";
+
 export interface StatusCountRow {
   status: string;
   _count: number | { status?: number; _all?: number };

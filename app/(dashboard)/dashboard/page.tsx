@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import StatCard from "@/components/stat-card";
 import StatusBadge from "@/components/status-badge";
+import { ANY_WORD_KEYWORD } from "@/lib/tracking/analytics";
 
 interface DashboardStats {
   userName: string | null;
@@ -159,7 +160,7 @@ export default function DashboardPage() {
             {stats?.topKeywords.map((keyword) => (
               <div key={keyword.keyword} className="flex items-center justify-between gap-3">
                 <span className="truncate text-sm font-medium text-foreground">
-                  {keyword.keyword}
+                  {keyword.keyword === ANY_WORD_KEYWORD ? t("Any comment") : keyword.keyword}
                 </span>
                 <span className="text-xs text-muted">{keyword.count}</span>
               </div>
