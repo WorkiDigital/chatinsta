@@ -1,18 +1,12 @@
 "use client";
 
-/**
- * Sidebar Navigation
- *
- * Text-only nav with active state and workspace section.
- */
-
+import { signOutAction } from "@/app/login/sign-out-action";
 import LanguageSwitcher from "@/components/language-switcher";
 import { useI18n } from "@/lib/i18n/provider";
-import Link from "next/link";
-import Image from "next/image";
 import { zernioLink } from "@/lib/zernio-links";
+import Image from "next/image";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOutAction } from "@/app/login/sign-out-action";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard" },
@@ -24,108 +18,84 @@ const navItems = [
   { label: "Diagnostics", href: "/diagnostics" },
 ] as const;
 
-interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
-  workspaceName: string;
-}
-
-export default function Sidebar({
-  isOpen,
-  onClose,
-  workspaceName,
-}: SidebarProps) {
+export default function Sidebar({ workspaceName }: { workspaceName: string }) {
   const { t } = useI18n();
   const pathname = usePathname();
 
   return (
-    <>
-      {/* Mobile overlay */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
-          onClick={onClose}
-        />
-      )}
-
-      <aside
-        className={`
-          fixed top-0 left-0 z-50 h-dvh w-64 max-w-[85vw] shrink-0 bg-surface border-r border-border flex flex-col
-          transition-transform duration-200 ease-out
-          lg:h-full lg:translate-x-0 lg:static lg:z-auto
-          ${isOpen ? "translate-x-0" : "-translate-x-full"}
-        `}
+    <header className="shrink-0 border-b border-border bg-surface">
+      <div
+        className="flex min-h-16 items-center justify-between gap-4 px-4 lg:px-8"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* Same reason as the top bar: the drawer is full height, so the
-            wordmark would otherwise land under the status bar. */}
-        <div
-          className="px-6 py-5 border-b border-border"
-          style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}
+        <Link
+          href="/dashboard"
+          className="shrink-0 bg-clip-text text-base font-semibold text-transparent"
+          style={{ backgroundImage: "var(--gradient-accent)" }}
         >
-          <Link
-            href="/dashboard"
-            className="text-base font-semibold bg-clip-text text-transparent"
-            style={{ backgroundImage: "var(--gradient-accent)" }}
-          >
-            OpenReply
-          </Link>
-        </div>
+          OpenReply
+        </Link>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const isActive =
-              pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                aria-current={isActive ? "page" : undefined}
-                className={`
-                  block px-3 py-2.5 rounded text-sm transition-colors
-                  ${
-                    isActive
-                      ? "text-accent font-medium"
-                      : "text-muted hover:text-foreground hover:bg-surface-hover"
-                  }
-                `}
-                style={isActive ? { background: "rgba(249, 98, 46, 0.1)" } : undefined}
+        <details className="group relative ml-auto">
+          <summary className="flex max-w-[min(55vw,22rem)] cursor-pointer list-none items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-surface-hover [&::-webkit-details-marker]:hidden">
+            <span className="truncate text-foreground">{workspaceName}</span>
+            <span className="shrink-0 text-xs text-muted transition-transform group-open:rotate-180">⌄</span>
+          </summary>
+          <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-surface p-4 shadow-xl">
+            <p className="truncate text-sm font-medium text-foreground">{workspaceName}</p>
+            <p className="mt-0.5 text-xs text-muted">{t("Self-hosted")}</p>
+            <div className="mt-4 border-t border-border pt-4">
+              <LanguageSwitcher />
+            </div>
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="mt-4 text-xs text-muted underline underline-offset-2 hover:text-foreground"
               >
-                {t(item.label)}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="px-5 py-4 border-t border-border">
-          <div className="mb-4"><LanguageSwitcher /></div>
-          <p className="text-sm text-foreground truncate">{workspaceName}</p>
-          <p className="text-xs text-muted">{t("Self-hosted")}</p>
-          <form action={signOutAction}>
-            <button
-              type="submit"
-              className="mt-2 text-xs text-muted hover:text-foreground underline underline-offset-2"
+                {t("Sign out")}
+              </button>
+            </form>
+            <a
+              href={zernioLink({ placement: "top-navigation" })}
+              target="_blank"
+              rel="sponsored noopener noreferrer"
+              className="mt-4 flex items-center gap-2 border-t border-border pt-4 text-xs text-muted hover:text-foreground"
             >
-              {t("Sign out")}
-            </button>
-          </form>
-          <a
-            href={zernioLink({ placement: "sidebar" })}
-            target="_blank"
-            rel="sponsored noopener noreferrer"
-            className="mt-4 flex items-center gap-3 text-xs text-muted hover:text-foreground"
-          >
-            <span>{t("Supported by")}</span>
-            <Image
-              src="/brand/zernio-primary.svg"
-              alt="Zernio"
-              width={64}
-              height={20}
-              className="m-2"
-            />
-          </a>
-        </div>
-      </aside>
-    </>
+              <span>{t("Supported by")}</span>
+              <Image
+                src="/brand/zernio-primary.svg"
+                alt="Zernio"
+                width={64}
+                height={20}
+              />
+            </a>
+          </div>
+        </details>
+      </div>
+
+      <nav
+        aria-label="Primary navigation"
+        className="flex gap-1 overflow-x-auto px-4 pb-3 lg:px-8"
+      >
+        {navItems.map((item) => {
+          const isActive =
+            pathname === item.href || pathname.startsWith(`${item.href}/`);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={isActive ? "page" : undefined}
+              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm transition-colors ${
+                isActive
+                  ? "bg-accent/10 font-medium text-accent"
+                  : "text-muted hover:bg-surface-hover hover:text-foreground"
+              }`}
+            >
+              {t(item.label)}
+            </Link>
+          );
+        })}
+      </nav>
+    </header>
   );
 }

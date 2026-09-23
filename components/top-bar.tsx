@@ -3,7 +3,7 @@
 /**
  * Top Bar
  *
- * Page title, mobile hamburger, and connection status.
+ * Page title and connection status.
  */
 
 import type { StaticMessageKey } from "@/lib/i18n";
@@ -25,13 +25,11 @@ const pageTitles: Record<string, StaticMessageKey> = {
 };
 
 interface TopBarProps {
-  onMenuClick: () => void;
   instagramUsername: string | null;
   instagramAccountCount: number;
 }
 
 export default function TopBar({
-  onMenuClick,
   instagramUsername,
   instagramAccountCount,
 }: TopBarProps) {
@@ -43,24 +41,8 @@ export default function TopBar({
   );
 
   return (
-    <header
-      className="sticky top-0 z-30 flex items-center justify-between gap-3 px-4 lg:px-8 border-b border-border bg-background"
-      // Installed to the home screen the app starts at the very top of the
-      // display, so without this the title sits under the clock and battery.
-      // The inset is 0 in a browser tab and on desktop.
-      style={{
-        height: "calc(4rem + env(safe-area-inset-top))",
-        paddingTop: "env(safe-area-inset-top)",
-      }}
-    >
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-8">
       <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-        <button
-          onClick={onMenuClick}
-          className="lg:hidden shrink-0 px-2.5 py-1.5 rounded border border-border text-sm text-muted hover:text-foreground"
-          aria-label={t("Toggle sidebar")}
-        >
-          {t("Menu")}
-        </button>
         <h1 className="truncate text-base font-semibold sm:text-lg">{t(title)}</h1>
       </div>
 
