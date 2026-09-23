@@ -11,6 +11,22 @@ type Button =
   | { type: "url"; title: string; url: string }
   | { type: "postback"; title: string; payload: string };
 
+type QuickReply = { title: string; payload: string };
+
+async function findZernioConversationId({ context, participantId }: { context: ZernioContext; participantId: string }): Promise<string> {
+  let cursor: string | undefined;
+  for (let page = 0; page < 5; page += 1) {
+    const params = new URLSearchParams({ accountId: context.accountId, platform: "instagram", limit: "100" });
+    if (cursor) params.set("cursor", cursor);
+    const result = await zernioRequest<{ data: { id: string; participantId?: string }[]; pagination?: { hasMore?: boolean; nextCursor?: string } }>({ apiKey: context.apiKey, path: `/inbox/conversations?${params}` });
+    const conversation = result.data.find((item) => item.participantId === participantId);
+    if (conversation) return conversation.id;
+    if (!result.pagination?.hasMore || !result.pagination.nextCursor) break;
+    cursor = result.pagination.nextCursor;
+  }
+  throw new ZernioApiError(400, "conversation_not_found");
+}
+
 async function sendZernioMessage({
   context,
   recipientId,
@@ -18,6 +34,7 @@ async function sendZernioMessage({
   postId,
   text,
   buttons,
+  quickReplies,
 }: {
   context: ZernioContext;
   recipientId?: string;
@@ -25,14 +42,16 @@ async function sendZernioMessage({
   postId?: string;
   text: string;
   buttons?: Button[];
+  quickReplies?: QuickReply[];
 }) {
   const path = commentId
     ? `/inbox/comments/${encodeURIComponent(postId ?? commentId)}/${encodeURIComponent(commentId)}/private-reply`
-    : `/inbox/conversations/${encodeURIComponent(recipientId!)}/messages`;
+    : `/inbox/conversations/${encodeURIComponent(await findZernioConversationId({ context, participantId: recipientId! }))}/messages`;
   const body = {
     accountId: context.accountId,
     message: buttons ? text.slice(0, 640) : text,
     ...(buttons ? { buttons } : {}),
+    ...(quickReplies ? { quickReplies } : {}),
   };
   const idempotencyKey = createHash("sha256")
     .update(
@@ -127,7 +146,7 @@ export async function sendPrivateReplyWithButton({
     commentId,
     postId,
     text: text,
-    buttons: [{ type: "postback", title: buttonTitle.slice(0, 20), payload }],
+    quickReplies: [{ title: buttonTitle.slice(0, 20), payload }],
   });
 }
 
@@ -186,12 +205,15 @@ export async function sendPrivateReplyWithLinkButton({
       text,
       buttons
     );
+  const inlineLinks = buttons
+    .slice(0, 3)
+    .map(({ title, url }) => `${title}: ${url}`)
+    .join("\n");
   return sendZernioMessage({
     context,
     commentId,
     postId,
-    text: text,
-    buttons: linkButtons(buttons),
+    text: `${text}\n\n${inlineLinks}`,
   });
 }
 

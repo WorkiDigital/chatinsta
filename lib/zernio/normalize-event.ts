@@ -17,7 +17,7 @@ const envelopeSchema = z.object({
     text: z.string().nullable(), sender: z.object({ id: z.string().min(1) }),
   }).optional(),
   conversation: z.object({ participantId: z.string().nullish() }).optional(),
-  metadata: z.object({ postbackPayload: z.string().optional(), postbackTitle: z.string().optional() }).optional(),
+  metadata: z.object({ postbackPayload: z.string().optional(), postbackTitle: z.string().optional(), quickReplyPayload: z.string().optional() }).optional(),
   statusAt: z.string().optional(),
 });
 
@@ -54,8 +54,9 @@ export function normalizeZernioEvent({ payload, account }: {
     entry.changes = [{ field: 'comments', value: { id: comment.id, text: comment.text, from: comment.author, media: { id: comment.platformPostId } } }];
   } else if (event === 'message.received' && message?.direction === 'incoming') {
     const sender = { id: message.sender.id };
-    entry.messaging = [metadata?.postbackPayload
-      ? { sender, postback: { mid: message.platformMessageId, payload: metadata.postbackPayload, title: metadata.postbackTitle } }
+    const interactionPayload = metadata?.postbackPayload ?? metadata?.quickReplyPayload;
+    entry.messaging = [interactionPayload
+      ? { sender, postback: { mid: message.platformMessageId, payload: interactionPayload, title: metadata?.postbackTitle } }
       : { sender, message: { mid: message.platformMessageId, text: message.text ?? '' } }];
   } else if (event === 'message.read' && conversation?.participantId) {
     const watermark = statusAt ? Date.parse(statusAt) : undefined;

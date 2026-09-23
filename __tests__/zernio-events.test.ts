@@ -31,6 +31,11 @@ describe('Zernio event boundary', () => {
     expect(parsePostbackEvents(result!)).toEqual([{ instagramAccountId: 'ig1', userId: 'person1', payload: 'reveal:campaign1', mid: 'native-mid' }]);
     expect(parseMessageEvents(result!)).toEqual([]);
   });
+  it('maps quick-reply taps as postbacks', () => {
+    const result = normalizeZernioEvent({ account, payload: { ...envelope, event: 'message.received', message: { platformMessageId: 'quick-mid', direction: 'incoming', text: 'Open', sender: { id: 'person1' } }, metadata: { quickReplyPayload: 'reveal:campaign1' } } });
+    expect(parsePostbackEvents(result!)).toEqual([{ instagramAccountId: 'ig1', userId: 'person1', payload: 'reveal:campaign1', mid: 'quick-mid' }]);
+    expect(parseMessageEvents(result!)).toEqual([]);
+  });
   it('maps inbound story text and read receipts to their existing handlers', () => {
     const result = normalizeZernioEvent({ account, payload: { ...envelope, event: 'message.received', message: { platformMessageId: 'mid', direction: 'incoming', text: 'LINK', sender: { id: 'person1' } } } });
     expect(parseMessageEvents(result!)[0]).toEqual({ instagramAccountId: 'ig1', messageId: 'mid', messageText: 'LINK', senderId: 'person1' });

@@ -5,14 +5,17 @@ import {
 } from "@/lib/meta/client";
 
 export class ZernioApiError extends MetaApiError {
-  constructor(status: number) {
+  readonly apiCode?: string;
+
+  constructor(status: number, apiCode?: string) {
     super(
       status,
       undefined,
       undefined,
-      `Zernio request failed (HTTP ${status})`
+      `Zernio request failed (HTTP ${status}${apiCode ? `, code: ${apiCode}` : ""})`
     );
     this.name = "ZernioApiError";
+    this.apiCode = apiCode;
   }
 }
 
@@ -56,10 +59,13 @@ export async function zernioRequest<T>({
   // Responses can contain platform credentials. Only the HTTP classification is
   // safe to persist in job errors or return to the browser.
   if (!response.ok) {
-    const message = `Zernio request failed (HTTP ${response.status})`;
+    const errorBody: unknown = await response.json().catch(() => null);
+    const rawCode = typeof errorBody === "object" && errorBody !== null && "code" in errorBody && typeof errorBody.code === "string" ? errorBody.code : undefined;
+    const apiCode = rawCode?.match(/^[a-zA-Z0-9_-]{1,80}$/)?.[0];
+    const message = `Zernio request failed (HTTP ${response.status}${apiCode ? `, code: ${apiCode}` : ""})`;
     if (response.status === 429) throw new RateLimitError(message);
     if (response.status === 401) throw new TokenExpiredError(message);
-    throw new ZernioApiError(response.status);
+    throw new ZernioApiError(response.status, apiCode);
   }
   if (response.status === 204) return undefined as T;
   return response.json().catch(() => {
