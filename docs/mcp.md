@@ -22,6 +22,13 @@ the stateless 2025 protocol used by older clients.
 Authorization: Bearer imcp_YOUR_KEY
 ```
 
+Clients that reserve the `Authorization` header for OAuth, such as Claude
+custom connectors, can send the raw key in this header instead:
+
+```text
+X-OpenReply-MCP-Key: imcp_YOUR_KEY
+```
+
 Each key is bound to the workspace that created it. It cannot read or modify a
 different workspace. Revoke a key from Settings to remove its access
 immediately.

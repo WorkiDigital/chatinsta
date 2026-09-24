@@ -35,7 +35,7 @@ describe("MCP API keys", () => {
     expect(first.tokenPrefix).toBe(first.token.slice(0, 13));
   });
 
-  it("reads only Bearer authorization headers", () => {
+  it("reads Bearer authorization and the Claude-compatible custom header", () => {
     expect(readBearerToken(new Request("https://example.com/api/mcp"))).toBeNull();
     expect(
       readBearerToken(
@@ -51,6 +51,13 @@ describe("MCP API keys", () => {
         })
       )
     ).toBe("imcp_secret");
+    expect(
+      readBearerToken(
+        new Request("https://example.com/api/mcp", {
+          headers: { "X-OpenReply-MCP-Key": "imcp_custom" },
+        })
+      )
+    ).toBe("imcp_custom");
   });
 
   it("rejects revoked keys", async () => {

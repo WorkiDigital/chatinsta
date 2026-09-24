@@ -22,10 +22,14 @@ export function generateMcpToken(): {
 
 export function readBearerToken(request: Request): string | null {
   const authorization = request.headers.get("authorization");
-  if (!authorization) return null;
+  if (authorization) {
+    const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
+    if (match?.[1]) return match[1].trim();
+  }
 
-  const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
-  return match?.[1]?.trim() || null;
+  // Some MCP clients reserve Authorization for OAuth and do not allow it as
+  // a custom header. Accept a dedicated secret header for those clients.
+  return request.headers.get("x-openreply-mcp-key")?.trim() || null;
 }
 
 export async function authenticateMcpRequest(request: Request): Promise<{

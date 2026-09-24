@@ -23,7 +23,7 @@ const handler = createMcpHandler(
 
 function unauthorized() {
   return Response.json(
-    { error: "Provide a valid InstaMany MCP key as a Bearer token" },
+    { error: "Provide a valid InstaMany MCP key as a Bearer token or X-OpenReply-MCP-Key header" },
     {
       status: 401,
       headers: {
