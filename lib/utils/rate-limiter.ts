@@ -14,23 +14,12 @@
  * this value.
  */
 
-import Redis from "ioredis";
+import { getRedisConnection } from "@/lib/queue/client";
 
 const RATE_LIMIT_MAX = 750; // private replies per hour, per Meta's documented cap
 const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
 const REQUEUE_DELAY_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_REQUEUE_ATTEMPTS = 3;
-
-let redis: Redis | null = null;
-
-function getRedis(): Redis {
-  if (!redis) {
-    redis = new Redis(process.env.REDIS_URL!, {
-      maxRetriesPerRequest: null, // required by BullMQ
-    });
-  }
-  return redis;
-}
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -106,7 +95,7 @@ export async function checkRateLimit(
   instagramAccountId: string,
   requeueAttempt: number = 0
 ): Promise<RateLimitResult> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:dm:${instagramAccountId}`;
 
   const currentCount = await client.get(key);
@@ -158,7 +147,7 @@ export async function reserveDMSlot(
   instagramAccountId: string,
   requeueAttempt: number = 0
 ): Promise<RateLimitResult> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:dm:${instagramAccountId}`;
 
   const result = await client.eval(
@@ -206,7 +195,7 @@ export async function reserveDMSlot(
 export async function releaseDMSlot(
   instagramAccountId: string
 ): Promise<number> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:dm:${instagramAccountId}`;
   const next = await client.decr(key);
   if (next < 0) {
@@ -234,7 +223,7 @@ export interface ManualMessageRateLimitResult {
 export async function reserveManualMessageSlot(
   instagramAccountId: string
 ): Promise<ManualMessageRateLimitResult> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:manual-dm:${instagramAccountId}`;
 
   const result = await client.eval(
@@ -260,7 +249,7 @@ export async function reserveManualMessageSlot(
 export async function releaseManualMessageSlot(
   instagramAccountId: string
 ): Promise<void> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:manual-dm:${instagramAccountId}`;
   const next = await client.decr(key);
   if (next < 0) await client.del(key);
@@ -283,7 +272,7 @@ export async function incrementDMCounter(
 export async function getCurrentDMCount(
   instagramAccountId: string
 ): Promise<number> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:dm:${instagramAccountId}`;
   const count = await client.get(key);
   return count ? parseInt(count, 10) : 0;
@@ -295,7 +284,7 @@ export async function getCurrentDMCount(
 export async function resetRateLimit(
   instagramAccountId: string
 ): Promise<void> {
-  const client = getRedis();
+  const client = getRedisConnection();
   const key = `rate:dm:${instagramAccountId}`;
   await client.del(key);
 }
