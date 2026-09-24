@@ -216,6 +216,56 @@ export async function releaseDMSlot(
   return next;
 }
 
+const MANUAL_MESSAGE_RATE_LIMIT_MAX = 30; // manual chat replies per minute, per Instagram account
+const MANUAL_MESSAGE_RATE_LIMIT_WINDOW = 60; // seconds
+
+export interface ManualMessageRateLimitResult {
+  allowed: boolean;
+  currentCount: number;
+  remaining: number;
+}
+
+/**
+ * Atomically reserve a slot for a manually-sent chat reply (e.g. the MCP
+ * send_message tool or the inbox composer). Capped separately from the
+ * automation DM limit above so a script driving the chat tool can't mass-DM
+ * through the account; reuses the same Redis reservation script and client.
+ */
+export async function reserveManualMessageSlot(
+  instagramAccountId: string
+): Promise<ManualMessageRateLimitResult> {
+  const client = getRedis();
+  const key = `rate:manual-dm:${instagramAccountId}`;
+
+  const result = await client.eval(
+    RESERVE_DM_SLOT_SCRIPT,
+    1,
+    key,
+    MANUAL_MESSAGE_RATE_LIMIT_MAX,
+    MANUAL_MESSAGE_RATE_LIMIT_WINDOW
+  );
+  const values = Array.isArray(result) ? result : [];
+  const allowedFlag = toScriptNumber(values[0]);
+  const count = toScriptNumber(values[1]);
+  const remaining = toScriptNumber(values[2]);
+
+  return {
+    allowed: allowedFlag === 1,
+    currentCount: count,
+    remaining: allowedFlag === 1 ? remaining : 0,
+  };
+}
+
+/** Hand back a manual-message slot reserved above after its send fails. */
+export async function releaseManualMessageSlot(
+  instagramAccountId: string
+): Promise<void> {
+  const client = getRedis();
+  const key = `rate:manual-dm:${instagramAccountId}`;
+  const next = await client.decr(key);
+  if (next < 0) await client.del(key);
+}
+
 /**
  * Backwards-compatible helper for tests and admin scripts.
  * Prefer reserveDMSlot in workers.
@@ -252,3 +302,4 @@ export async function resetRateLimit(
 
 // Export constants for use in tests
 export { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, REQUEUE_DELAY_MS, MAX_REQUEUE_ATTEMPTS };
+export { MANUAL_MESSAGE_RATE_LIMIT_MAX, MANUAL_MESSAGE_RATE_LIMIT_WINDOW };

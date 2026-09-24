@@ -91,5 +91,8 @@ describe("MCP HTTP endpoint", () => {
     expect(body).toContain("create_flow");
     expect(body).toContain("update_flow");
     expect(body).toContain("set_flow_status");
+    expect(body).toContain("list_conversations");
+    expect(body).toContain("get_conversation");
+    expect(body).toContain("send_message");
   });
 });
