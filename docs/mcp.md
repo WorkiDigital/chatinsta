@@ -47,6 +47,24 @@ immediately.
 For safety, `create_flow` creates an inactive flow unless the caller explicitly
 sets `isActive` to `true`. The MCP does not expose flow deletion.
 
+### Opening DM, follow gate, and follow-up
+
+`create_flow` and `update_flow` also accept the fields that control the rest of
+the DM sequence:
+
+- `openingDmEnabled`, `openingDmMessage`, `openingDmButtonLabel` — send an
+  opening DM before the link. `openingDmMessage` and `openingDmButtonLabel` are
+  required together when `openingDmEnabled` is `true`; this is what makes the
+  link render as a tappable button instead of plain text in the DM.
+- `requireFollow`, `followPromptMessage`, `followPromptButtonLabel` — gate the
+  link behind a follow check, prompting the user to follow before it unlocks.
+- `followUpEnabled`, `followUpMessage`, `followUpDelayMinutes` — send a
+  follow-up DM after the link is delivered, delayed by `followUpDelayMinutes`
+  (0-1440 minutes).
+
+Setting any of the three `*Enabled`/`requireFollow` flags to `false` on
+`update_flow` clears that section's stored messages.
+
 ## Client configuration
 
 Use a remote/Streamable HTTP MCP connection with:

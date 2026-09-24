@@ -21,8 +21,17 @@ const createFlowSchema = z
     matchAnyWord: z.boolean().default(false),
     dmTriggerEnabled: z.boolean().default(false),
     dmMessage: z.string().trim().min(1).max(1000),
+    openingDmEnabled: z.boolean().default(false),
+    openingDmMessage: z.string().trim().min(1).max(1000).optional(),
+    openingDmButtonLabel: z.string().trim().min(1).max(64).optional(),
     trackedDestinationUrl: z.url().optional(),
     linkButtonLabel: z.string().trim().min(1).max(20).optional(),
+    requireFollow: z.boolean().default(false),
+    followPromptMessage: z.string().trim().min(1).max(1000).optional(),
+    followPromptButtonLabel: z.string().trim().min(1).max(20).optional(),
+    followUpEnabled: z.boolean().default(false),
+    followUpMessage: z.string().trim().min(1).max(1000).optional(),
+    followUpDelayMinutes: z.number().int().min(0).max(1440).default(0),
     publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
     wholeWordMatch: z.boolean().default(true),
     isActive: z.boolean().default(false),
@@ -34,6 +43,13 @@ const createFlowSchema = z
     if (!data.matchAnyWord && data.keywords.length === 0) {
       context.addIssue({ code: "custom", path: ["keywords"], message: "Provide a keyword or enable matchAnyWord" });
     }
+    if (data.openingDmEnabled && !(data.openingDmMessage && data.openingDmButtonLabel)) {
+      context.addIssue({
+        code: "custom",
+        path: ["openingDmMessage"],
+        message: "Opening DM needs a message and a button label",
+      });
+    }
   });
 
 const updateFlowSchema = z.object({
@@ -44,8 +60,17 @@ const updateFlowSchema = z.object({
   matchAnyWord: z.boolean().optional(),
   dmTriggerEnabled: z.boolean().optional(),
   dmMessage: z.string().trim().min(1).max(1000).optional(),
+  openingDmEnabled: z.boolean().optional(),
+  openingDmMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
+  openingDmButtonLabel: z.union([z.string().trim().min(1).max(64), z.null()]).optional(),
   trackedDestinationUrl: z.union([z.url(), z.literal("")]).optional(),
   linkButtonLabel: z.union([z.string().trim().min(1).max(20), z.null()]).optional(),
+  requireFollow: z.boolean().optional(),
+  followPromptMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
+  followPromptButtonLabel: z.union([z.string().trim().min(1).max(20), z.null()]).optional(),
+  followUpEnabled: z.boolean().optional(),
+  followUpMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
+  followUpDelayMinutes: z.number().int().min(0).max(1440).optional(),
   publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).optional(),
   wholeWordMatch: z.boolean().optional(),
 });
@@ -145,6 +170,9 @@ export function createInstaManyMcpServer(workspaceId: string) {
             matchAnyWord: true,
             dmTriggerEnabled: true,
             dmMessage: true,
+            openingDmEnabled: true,
+            requireFollow: true,
+            followUpEnabled: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -184,7 +212,10 @@ export function createInstaManyMcpServer(workspaceId: string) {
     {
       title: "Create flow",
       description:
-        "Create an Instagram comment-to-DM flow. Targets can be any_post, next_reel, or specific_post. New flows are inactive by default.",
+        "Create an Instagram comment-to-DM flow. Targets can be any_post, next_reel, or specific_post. New flows are inactive by default. " +
+        "Set openingDmEnabled with openingDmMessage and openingDmButtonLabel to send an opening DM whose link renders as a button instead of plain text. " +
+        "Set requireFollow with followPromptMessage and followPromptButtonLabel to gate the link behind a follow check. " +
+        "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered.",
       inputSchema: createFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
@@ -216,7 +247,16 @@ export function createInstaManyMcpServer(workspaceId: string) {
             matchAnyWord: input.matchAnyWord,
             dmTriggerEnabled: input.dmTriggerEnabled,
             dmMessage: input.dmMessage,
+            openingDmEnabled: input.openingDmEnabled,
+            openingDmMessage: input.openingDmEnabled ? input.openingDmMessage ?? null : null,
+            openingDmButtonLabel: input.openingDmEnabled ? input.openingDmButtonLabel ?? null : null,
             linkButtonLabel: input.linkButtonLabel ?? null,
+            requireFollow: input.requireFollow,
+            followPromptMessage: input.requireFollow ? input.followPromptMessage ?? null : null,
+            followPromptButtonLabel: input.requireFollow ? input.followPromptButtonLabel ?? null : null,
+            followUpEnabled: input.followUpEnabled,
+            followUpMessage: input.followUpEnabled ? input.followUpMessage ?? null : null,
+            followUpDelayMinutes: input.followUpEnabled ? input.followUpDelayMinutes : 0,
             publicReplyEnabled: publicReplyMessages.length > 0,
             publicReplyMessage: publicReplyMessages[0] ?? null,
             publicReplyMessages,
@@ -238,7 +278,10 @@ export function createInstaManyMcpServer(workspaceId: string) {
     "update_flow",
     {
       title: "Update flow",
-      description: "Update the editable message and matching settings of an existing flow. Use an empty trackedDestinationUrl to remove its primary link.",
+      description:
+        "Update the editable message and matching settings of an existing flow. Use an empty trackedDestinationUrl to remove its primary link. " +
+        "Setting openingDmEnabled, requireFollow, or followUpEnabled to false clears that section's messages. " +
+        "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM.",
       inputSchema: updateFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
@@ -255,6 +298,18 @@ export function createInstaManyMcpServer(workspaceId: string) {
 
         const data: Prisma.AutomationUpdateInput = { ...changes };
         if (changes.matchAnyWord === true) data.keywords = [];
+        if (changes.openingDmEnabled === false) {
+          data.openingDmMessage = null;
+          data.openingDmButtonLabel = null;
+        }
+        if (changes.requireFollow === false) {
+          data.followPromptMessage = null;
+          data.followPromptButtonLabel = null;
+        }
+        if (changes.followUpEnabled === false) {
+          data.followUpMessage = null;
+          data.followUpDelayMinutes = 0;
+        }
         if (publicReplyMessages !== undefined) {
           data.publicReplyMessages = publicReplyMessages;
           data.publicReplyMessage = publicReplyMessages[0] ?? null;
