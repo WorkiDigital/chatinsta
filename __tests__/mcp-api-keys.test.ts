@@ -58,6 +58,13 @@ describe("MCP API keys", () => {
         })
       )
     ).toBe("imcp_custom");
+    expect(
+      readBearerToken(
+        new Request("https://example.com/api/mcp", {
+          headers: { "X-API-Key": "imcp_standard" },
+        })
+      )
+    ).toBe("imcp_standard");
   });
 
   it("rejects revoked keys", async () => {

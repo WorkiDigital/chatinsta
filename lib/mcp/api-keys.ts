@@ -29,7 +29,11 @@ export function readBearerToken(request: Request): string | null {
 
   // Some MCP clients reserve Authorization for OAuth and do not allow it as
   // a custom header. Accept a dedicated secret header for those clients.
-  return request.headers.get("x-openreply-mcp-key")?.trim() || null;
+  return (
+    request.headers.get("x-api-key")?.trim() ||
+    request.headers.get("x-openreply-mcp-key")?.trim() ||
+    null
+  );
 }
 
 export async function authenticateMcpRequest(request: Request): Promise<{

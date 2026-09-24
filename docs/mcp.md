@@ -23,10 +23,10 @@ Authorization: Bearer imcp_YOUR_KEY
 ```
 
 Clients that reserve the `Authorization` header for OAuth, such as Claude
-custom connectors, can send the raw key in this header instead:
+custom connectors, can send the raw key in the standard API-key header instead:
 
 ```text
-X-OpenReply-MCP-Key: imcp_YOUR_KEY
+X-API-Key: imcp_YOUR_KEY
 ```
 
 Each key is bound to the workspace that created it. It cannot read or modify a

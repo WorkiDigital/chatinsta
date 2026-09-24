@@ -24,7 +24,7 @@ const handler = createMcpHandler(
 
 function unauthorized() {
   return Response.json(
-    { error: "Provide a valid InstaMany MCP key as a Bearer token or X-OpenReply-MCP-Key header" },
+    { error: "Provide a valid InstaMany MCP key as a Bearer token or X-API-Key header" },
     {
       status: 401,
       headers: {
@@ -90,7 +90,7 @@ export function OPTIONS(request: Request) {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Content-Type, Authorization, X-OpenReply-MCP-Key, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID",
+        "Content-Type, Authorization, X-API-Key, X-OpenReply-MCP-Key, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
     },
