@@ -1291,13 +1291,31 @@ describe("durable Zernio postback delivery", () => {
     });
   }
 
+  // Every send by userId (no commentId) now resolves the Zernio conversation
+  // id first via a GET to /inbox/conversations, then POSTs the message — see
+  // findZernioConversationId in lib/instagram/send-messages.ts. That lookup
+  // must always resolve so it doesn't interfere with each test's own
+  // send-side behavior (failures, 429s, concurrency), and the assertions
+  // below count POSTs only, since raw call counts now include the lookup GET.
+  function conversationLookupResponse() {
+    return new Response(
+      JSON.stringify({
+        data: [{ id: "conv1", participantId: "commenter_999" }],
+        pagination: { hasMore: false },
+      }),
+    );
+  }
+
   it("retains an uncertain tap across a newer successful tap and queue eviction", async () => {
-    fetchMock
-      .mockImplementation(
-        async () =>
-          new Response(JSON.stringify({ data: { messageId: "new-tap" } })),
-      )
-      .mockRejectedValueOnce(new Error("connection reset"));
+    let postCount = 0;
+    fetchMock.mockImplementation(
+      async (_url: string, init: { method: string }) => {
+        if (init.method === "GET") return conversationLookupResponse();
+        postCount += 1;
+        if (postCount === 1) throw new Error("connection reset");
+        return new Response(JSON.stringify({ data: { messageId: "new-tap" } }));
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     try {
       const process = getProcessor();
@@ -1306,7 +1324,9 @@ describe("durable Zernio postback delivery", () => {
       });
       await process(tap("new"));
       await process({ ...tap("old"), id: "redelivery-job" });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init.method === "POST"),
+      ).toHaveLength(2);
       expect(mockPrisma.postbackDelivery.delete).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
@@ -1315,7 +1335,10 @@ describe("durable Zernio postback delivery", () => {
 
   it("deduplicates successful old taps while permitting each distinct new mid", async () => {
     fetchMock.mockImplementation(
-      async () => new Response(JSON.stringify({ data: { messageId: "sent" } })),
+      async (_url: string, init: { method: string }) => {
+        if (init.method === "GET") return conversationLookupResponse();
+        return new Response(JSON.stringify({ data: { messageId: "sent" } }));
+      },
     );
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -1323,7 +1346,9 @@ describe("durable Zernio postback delivery", () => {
       await process(tap("first"));
       await process(tap("second"));
       await process({ ...tap("first"), id: "after-retention" });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init.method === "POST"),
+      ).toHaveLength(2);
       expect(mockReleaseWorkspaceDMReservation).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
@@ -1331,17 +1356,23 @@ describe("durable Zernio postback delivery", () => {
   });
 
   it("releases a claim on a confirmed rejection so the same tap can retry", async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response("{}", { status: 429 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: { messageId: "sent" } })),
-      );
+    let postCount = 0;
+    fetchMock.mockImplementation(
+      async (_url: string, init: { method: string }) => {
+        if (init.method === "GET") return conversationLookupResponse();
+        postCount += 1;
+        if (postCount === 1) return new Response("{}", { status: 429 });
+        return new Response(JSON.stringify({ data: { messageId: "sent" } }));
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     try {
       const process = getProcessor();
       await expect(process(tap("retry"))).rejects.toThrow();
       await process(tap("retry"));
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init.method === "POST"),
+      ).toHaveLength(2);
       expect(mockPrisma.postbackDelivery.delete).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
@@ -1349,7 +1380,10 @@ describe("durable Zernio postback delivery", () => {
   });
   it("claims concurrent deliveries of the same tap before either can send twice", async () => {
     fetchMock.mockImplementation(
-      async () => new Response(JSON.stringify({ data: { messageId: "sent" } })),
+      async (_url: string, init: { method: string }) => {
+        if (init.method === "GET") return conversationLookupResponse();
+        return new Response(JSON.stringify({ data: { messageId: "sent" } }));
+      },
     );
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -1358,7 +1392,9 @@ describe("durable Zernio postback delivery", () => {
         process(tap("concurrent")),
         process({ ...tap("concurrent"), id: "other-job" }),
       ]);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(
+        fetchMock.mock.calls.filter(([, init]) => init.method === "POST"),
+      ).toHaveLength(1);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1377,14 +1413,13 @@ describe("durable Zernio postback delivery", () => {
       },
     });
     fetchMock.mockImplementation(
-      async (_url: string, init: { method: string }) =>
-        new Response(
-          JSON.stringify(
-            init.method === "GET"
-              ? { isFollower: false }
-              : { data: { messageId: "prompt" } },
-          ),
-        ),
+      async (url: string, init: { method: string }) => {
+        if (init.method !== "GET") {
+          return new Response(JSON.stringify({ data: { messageId: "prompt" } }));
+        }
+        if (url.includes("/inbox/conversations")) return conversationLookupResponse();
+        return new Response(JSON.stringify({ isFollower: false }));
+      },
     );
     vi.stubGlobal("fetch", fetchMock);
     try {

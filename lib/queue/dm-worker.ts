@@ -1068,8 +1068,12 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
 
 /**
  * Send the scheduled appreciation follow-up. Runs after its delay elapses.
- * Best-effort: if the message can't be delivered (e.g. the 24-hour messaging
- * window closed because the delay was long), it is logged, not retried forever.
+ * A send failure (e.g. the 24-hour messaging window closed because the delay
+ * was long) is rethrown like every other job type in this file, so it goes
+ * through BullMQ's normal retry/backoff and the worker's "failed" handler —
+ * recordWorkerFailure — which is what makes it visible in OperationalEvent,
+ * the worker alerts list, and the Diagnostics page/MCP tool. Silently
+ * swallowing it here would mean a broken follow-up leaves no trace anywhere.
  */
 async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
   const { instagramAccountId, userId, automationId, commenterName } = job.data;
@@ -1114,6 +1118,7 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
       "[DM Worker] Failed to send follow-up message:",
       formatError(error)
     );
+    throw error;
   }
 }
 

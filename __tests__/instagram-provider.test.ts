@@ -68,12 +68,14 @@ describe("Instagram provider boundary", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       accountId: "selected",
       message: "hello",
-      buttons: [
-        { type: "postback", title: "Reveal", payload: "reveal:campaign" },
-      ],
+      quickReplies: [{ title: "Reveal", payload: "reveal:campaign" }],
     });
   });
   it("sends URL buttons to the recipient IGSID without another send", async () => {
+    respond({
+      data: [{ id: "conv1", participantId: "recipient" }],
+      pagination: { hasMore: false },
+    });
     respond({ data: { messageId: "mid" } });
     await sendDirectMessageWithLinkButton({
       context,
@@ -82,11 +84,11 @@ describe("Instagram provider boundary", () => {
       text: "link",
       buttons: [{ title: "Open", url: "https://example.com" }],
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toContain(
-      "/conversations/recipient/messages"
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toContain(
+      "/conversations/conv1/messages"
     );
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).buttons[0].type).toBe(
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).buttons[0].type).toBe(
       "url"
     );
   });
@@ -257,14 +259,22 @@ it("adds a repeatable idempotency key and stops on an unconfirmed direct send", 
     text: "link",
     buttons: [{ title: "Open", url: "https://example.com" }],
   };
+  const conversationLookup = () =>
+    respond({
+      data: [{ id: "conv1", participantId: "recipient" }],
+      pagination: { hasMore: false },
+    });
+  conversationLookup();
   respond({ data: { messageId: "sent" } });
   await sendDirectMessageWithLinkButton(input);
+  conversationLookup();
   respond({ data: { messageId: "sent" } });
   await sendDirectMessageWithLinkButton(input);
-  expect(fetchMock.mock.calls[0][1].headers["Idempotency-Key"]).toBeTruthy();
-  expect(fetchMock.mock.calls[1][1].headers["Idempotency-Key"]).toBe(
-    fetchMock.mock.calls[0][1].headers["Idempotency-Key"]
+  expect(fetchMock.mock.calls[1][1].headers["Idempotency-Key"]).toBeTruthy();
+  expect(fetchMock.mock.calls[3][1].headers["Idempotency-Key"]).toBe(
+    fetchMock.mock.calls[1][1].headers["Idempotency-Key"]
   );
+  conversationLookup();
   fetchMock.mockRejectedValueOnce(new Error("connection reset"));
   await expect(sendDirectMessageWithLinkButton(input)).rejects.toBeInstanceOf(
     ZernioDeliveryUnconfirmedError
