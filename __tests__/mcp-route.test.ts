@@ -94,5 +94,6 @@ describe("MCP HTTP endpoint", () => {
     expect(body).toContain("list_conversations");
     expect(body).toContain("get_conversation");
     expect(body).toContain("send_message");
+    expect(body).toContain("get_diagnostics");
   });
 });

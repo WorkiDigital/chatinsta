@@ -11,6 +11,7 @@ import {
   sendDirectMessage,
   sendDirectMessageWithLinkButton,
 } from "@/lib/instagram/provider";
+import { getDiagnostics } from "@/lib/ops/get-diagnostics";
 import { generateReportShareSlug } from "@/lib/reports/share";
 import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
 import { reserveManualMessageSlot, releaseManualMessageSlot } from "@/lib/utils/rate-limiter";
@@ -678,6 +679,29 @@ export function createInstaManyMcpServer(workspaceId: string) {
           await releaseManualMessageSlot(account.id);
           throw sendError;
         }
+      } catch (error) {
+        return errorResult(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_diagnostics",
+    {
+      title: "Get diagnostics",
+      description:
+        "Read the same data as the dashboard's Production Diagnostics page: DM queue depth, worker health/recent alerts, this workspace's " +
+        "webhook/DM/token-refresh failures, and the operational event timeline. queueCounts, workerHealth, and workerAlerts describe the DM " +
+        "worker and its job queue, which are shared infrastructure serving every workspace on this deployment, not just this one; everything " +
+        "else (webhookFailures, dmFailures, tokenRefreshFailures, and the workspace-scoped rows in operationalEvents) is filtered to this " +
+        "workspace.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    async () => {
+      try {
+        const diagnostics = await getDiagnostics(workspaceId);
+        return jsonResult(diagnostics);
       } catch (error) {
         return errorResult(error);
       }

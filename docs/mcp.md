@@ -46,6 +46,7 @@ immediately.
 | `list_conversations` | List DM conversations for one Instagram account. |
 | `get_conversation` | Read one conversation's message history. |
 | `send_message` | Reply in an existing conversation. |
+| `get_diagnostics` | Read the same data as the dashboard's Production Diagnostics page. |
 
 For safety, `create_flow` creates an inactive flow unless the caller explicitly
 sets `isActive` to `true`. The MCP does not expose flow deletion, and it does
@@ -102,6 +103,21 @@ plain "Janela de 24h fechada, o Instagram não permite enviar" error instead of
 calling the send API when it's closed. It is also rate-limited to 30 sends per
 minute per Instagram account, independent of the automation DM rate limit, to
 stop a runaway client from mass-messaging through the account.
+
+### Diagnostics
+
+`get_diagnostics` calls the exact same aggregation (`lib/ops/get-diagnostics.ts`)
+as the dashboard's **Production Diagnostics** page and the `/api/admin/diagnostics`
+route it reads from — same data, same shape. Two things to know about its scope:
+
+- `queueCounts`, `workerHealth`, and `workerAlerts` describe the DM worker
+  process and its BullMQ queue, which are **shared infrastructure for the
+  whole deployment** — every workspace hosted on this instance sees the same
+  numbers and alerts, not just the caller's. This mirrors the dashboard page
+  exactly; it is not a boundary the MCP loosens.
+- `webhookFailures`, `dmFailures`, `tokenRefreshFailures`, and the
+  workspace-scoped rows in `operationalEvents` are filtered to the calling
+  API key's workspace, same as everywhere else in the MCP.
 
 ## Client configuration
 
