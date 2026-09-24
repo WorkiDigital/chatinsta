@@ -3,8 +3,6 @@
 import { signOutAction } from "@/app/login/sign-out-action";
 import LanguageSwitcher from "@/components/language-switcher";
 import { useI18n } from "@/lib/i18n/provider";
-import { zernioLink } from "@/lib/zernio-links";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -55,20 +53,6 @@ export default function Sidebar({ workspaceName }: { workspaceName: string }) {
                 {t("Sign out")}
               </button>
             </form>
-            <a
-              href={zernioLink({ placement: "top-navigation" })}
-              target="_blank"
-              rel="sponsored noopener noreferrer"
-              className="mt-4 flex items-center gap-2 border-t border-border pt-4 text-xs text-muted hover:text-foreground"
-            >
-              <span>{t("Supported by")}</span>
-              <Image
-                src="/brand/zernio-primary.svg"
-                alt="Zernio"
-                width={64}
-                height={20}
-              />
-            </a>
           </div>
         </details>
       </div>

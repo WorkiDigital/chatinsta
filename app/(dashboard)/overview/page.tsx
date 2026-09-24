@@ -346,7 +346,7 @@ export default function OverviewPage() {
       ? t(" (capped at {count})", { count: totals.posts })
       : "");
   const interactionItems = [
-    { label: t("Likes"), value: totals.likes, color: "bg-[#c4490c]" },
+    { label: t("Likes"), value: totals.likes, color: "bg-[#d62976]" },
     { label: t("Comments"), value: totals.comments, color: "bg-[#d97706]" },
     {
       label: t("Saved"),
