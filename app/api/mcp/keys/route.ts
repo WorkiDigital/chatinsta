@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
+import { getBaseUrl } from "@/lib/env";
 import { generateMcpToken } from "@/lib/mcp/api-keys";
 import {
   canManageWorkspace,
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
       data: {
         ...key,
         token: generated.token,
-        endpoint: `${new URL(request.url).origin}/api/mcp`,
+        endpoint: new URL("/api/mcp", getBaseUrl()).toString(),
       },
     },
     { status: 201 }
