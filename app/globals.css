@@ -1,41 +1,31 @@
 @import "tailwindcss";
 
-/* OpenReply — Design System
-   Modern and vibrant: gradient accents, soft shadows, generous rounding. */
+/* OpenReply design system: warm editorial surfaces, restrained color and
+   neutral shadows keep dense product screens calm and premium. */
 
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #18181b;
-  --color-surface: #f7f7f8;
-  --color-surface-hover: #efeff1;
-  --color-border: #e4e4e7;
-  --color-border-hover: #d4d4d8;
-  --color-muted: #71717a;
-  --color-accent: #f9622e;
-  --color-accent-hover: #e0491a;
-  --color-success: #16a34a;
-  --color-error: #dc2626;
-  --color-warning: #d97706;
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-background: #f6f6f3;
+  --color-foreground: #191816;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f2f1ed;
+  --color-border: #e7e5df;
+  --color-border-hover: #d7d3ca;
+  --color-muted: #6f6d68;
+  --color-accent: #c4490c;
+  --color-accent-hover: #9f3608;
+  --color-success: #166534;
+  --color-error: #b42318;
+  --color-warning: #92400e;
+  --font-sans: "OpenReply Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, monospace;
   /* Rounder corners app-wide — every `rounded` utility picks this up. */
-  --radius: 0.75rem;
+  --radius: 1rem;
 }
 
 :root {
-  --gradient-accent: linear-gradient(135deg, #f9622e, #f43f7d);
-  --shadow-soft: 0 2px 14px rgba(249, 60, 46, 0.08);
-  --shadow-soft-hover: 0 6px 22px rgba(249, 60, 46, 0.14);
-}
-
-/* Buttons and fills that reach for the plain accent color get the gradient
-   instead — unlayered rules win over Tailwind's @layer utilities regardless
-   of source order, so this applies wherever `bg-accent` is used. */
-.bg-accent {
-  background: var(--gradient-accent);
-}
-.hover\:bg-accent-hover:hover {
-  background: linear-gradient(135deg, #e0491a, #d92e68);
+  --gradient-accent: linear-gradient(135deg, #c4490c, #b52f62);
+  --shadow-soft: 0 1px 2px rgba(25, 24, 22, 0.04), 0 10px 30px rgba(25, 24, 22, 0.05);
+  --shadow-soft-hover: 0 2px 4px rgba(25, 24, 22, 0.05), 0 18px 45px rgba(25, 24, 22, 0.09);
 }
 
 html {
@@ -43,7 +33,9 @@ html {
 }
 
 body {
-  background: var(--color-background);
+  background:
+    radial-gradient(circle at 92% -10%, rgba(196, 73, 12, 0.07), transparent 28rem),
+    var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
 }
@@ -79,7 +71,7 @@ select:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 /* Kept as no-op aliases so existing markup degrades to plain surfaces
@@ -132,6 +124,13 @@ select:focus-visible {
 .zernio-sponsor { background: var(--color-zernio-cream); color: var(--color-zernio-charcoal); border-color: var(--color-zernio-border); }
 .zernio-action { background: var(--color-zernio-coral); color: white; }
 
+@font-face {
+  font-family: 'OpenReply Sans';
+  src: url('/fonts/geist-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 @font-face {
   font-family: 'Zernio Geist';
   src: url('/fonts/geist-latin.woff2') format('woff2');

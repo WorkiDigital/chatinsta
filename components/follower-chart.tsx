@@ -3,7 +3,7 @@
 /**
  * Followers Over Time
  *
- * Single-series line chart over stored daily snapshots. Deliberately separate
+ * Single-series area chart over stored daily snapshots. Deliberately separate
  * from the Overview stat tiles: those sum the selected posts, while this is an
  * account-level total that ignores the post range.
  *
@@ -16,9 +16,9 @@ import type { Locale } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
 import { useState } from "react";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -33,9 +33,9 @@ export interface FollowerChartPoint {
 
 // Colors read against the light chart surface (#ffffff): the accent line clears
 // 3:1 contrast and grid/axis text match the muted/border tokens. See globals.css.
-const SERIES_COLOR = "#f97316";
-const GRID_COLOR = "#e4e4e7";
-const AXIS_TEXT = "#71717a";
+const SERIES_COLOR = "#c4490c";
+const GRID_COLOR = "#e7e5df";
+const AXIS_TEXT = "#6f6d68";
 
 function formatCompact(n: number, locale: Locale): string {
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -99,10 +99,13 @@ export default function FollowerChart({
     data.length > 1 ? data[data.length - 1].followers - data[0].followers : null;
 
   return (
-    <div className="panel rounded p-4 sm:p-6">
+    <div className="panel overflow-hidden p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+            Instagram
+          </p>
+          <h2 className="mt-1 text-base font-semibold tracking-[-0.01em] text-foreground">
             {t("Followers over time")}
           </h2>
           <p className="mt-1 text-sm text-muted">
@@ -132,7 +135,7 @@ export default function FollowerChart({
       </div>
 
       {data.length < 2 ? (
-        <div className="mt-6 rounded border border-border bg-surface/60 p-6 text-center">
+        <div className="mt-6 rounded-xl border border-dashed border-border bg-background/70 p-8 text-center">
           <p className="text-sm text-foreground">{t("Collecting follower history")}</p>
           <p className="mt-1 text-sm text-muted">
             {data.length === 0
@@ -171,10 +174,16 @@ export default function FollowerChart({
       ) : (
         <div className="mt-6 h-56 sm:h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart
+            <AreaChart
               data={data}
               margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
             >
+              <defs>
+                <linearGradient id="followersFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={SERIES_COLOR} stopOpacity={0.24} />
+                  <stop offset="100%" stopColor={SERIES_COLOR} stopOpacity={0.01} />
+                </linearGradient>
+              </defs>
               <CartesianGrid
                 vertical={false}
                 stroke={GRID_COLOR}
@@ -202,16 +211,17 @@ export default function FollowerChart({
                 content={<ChartTooltip />}
                 cursor={{ stroke: GRID_COLOR, strokeWidth: 1 }}
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="followers"
                 stroke={SERIES_COLOR}
-                strokeWidth={2}
+                strokeWidth={2.5}
+                fill="url(#followersFill)"
                 dot={false}
                 activeDot={{ r: 4, fill: SERIES_COLOR, stroke: "#ffffff", strokeWidth: 2 }}
                 isAnimationActive={false}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
