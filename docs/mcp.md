@@ -43,9 +43,18 @@ immediately.
 | `create_flow` | Create a flow for any post, the next reel, or one specific post. |
 | `update_flow` | Change keywords, messages, public replies, and the primary tracked link. |
 | `set_flow_status` | Activate or pause a flow. |
+| `list_conversations` | List DM conversations for one Instagram account. |
+| `get_conversation` | Read one conversation's message history. |
+| `send_message` | Reply in an existing conversation. |
 
 For safety, `create_flow` creates an inactive flow unless the caller explicitly
-sets `isActive` to `true`. The MCP does not expose flow deletion.
+sets `isActive` to `true`. The MCP does not expose flow deletion, and it does
+not expose conversation deletion either.
+
+Every tool resolves its Instagram account through the same workspace-scoped
+lookup the dashboard uses (`getWorkspaceInstagramAccount`), and every read or
+write is filtered by the workspace tied to the calling API key — the same
+authentication and workspace boundary as the rest of InstaMany's API.
 
 ### Opening DM, follow gate, and follow-up
 
@@ -64,6 +73,35 @@ the DM sequence:
 
 Setting any of the three `*Enabled`/`requireFollow` flags to `false` on
 `update_flow` clears that section's stored messages.
+
+### Chat tools
+
+`list_conversations`, `get_conversation`, and `send_message` read and write
+through the exact same Conversations API the dashboard **Inbox** page uses
+(`lib/instagram/provider.ts`), so a reply sent via MCP shows up in the Inbox
+like any other message, and vice versa. A few fields are best-effort given
+what that API actually exposes:
+
+- **`windowOpen`** (`list_conversations`) is `true`/`false` only when the most
+  recent message in the list is inbound; Meta's list endpoint doesn't return
+  enough history to tell otherwise, so it comes back `null` in that case. Call
+  `get_conversation` or attempt `send_message` for a definitive answer.
+- **`unreadOnly`** (`list_conversations`) is a heuristic — the last message
+  came from the contact and hasn't been replied to yet — since Instagram
+  exposes no native unread flag through this API.
+- **`flowId`** (`list_conversations`) and **`origin`** (`get_conversation`) are
+  derived from `DmLog`, matching a contact's automation sends by timestamp;
+  there is no direct link from a Conversations API message to the automation
+  that sent it.
+- `get_conversation`'s `limit`/`cursor` page within the ~20 most recent
+  messages Instagram returns for a thread; they cannot reach further history.
+
+`send_message` re-checks the 24-hour messaging window itself before sending
+(using the same message-history call as `get_conversation`) and returns a
+plain "Janela de 24h fechada, o Instagram não permite enviar" error instead of
+calling the send API when it's closed. It is also rate-limited to 30 sends per
+minute per Instagram account, independent of the automation DM rate limit, to
+stop a runaway client from mass-messaging through the account.
 
 ## Client configuration
 
