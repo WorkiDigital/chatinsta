@@ -11,8 +11,8 @@
   --color-border: #e7e5df;
   --color-border-hover: #d7d3ca;
   --color-muted: #6f6d68;
-  --color-accent: #c4490c;
-  --color-accent-hover: #9f3608;
+  --color-accent: #d62976;
+  --color-accent-hover: #a11f59;
   --color-success: #166534;
   --color-error: #b42318;
   --color-warning: #92400e;
@@ -23,7 +23,7 @@
 }
 
 :root {
-  --gradient-accent: linear-gradient(135deg, #c4490c, #b52f62);
+  --gradient-accent: linear-gradient(135deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);
   --shadow-soft: 0 1px 2px rgba(25, 24, 22, 0.04), 0 10px 30px rgba(25, 24, 22, 0.05);
   --shadow-soft-hover: 0 2px 4px rgba(25, 24, 22, 0.05), 0 18px 45px rgba(25, 24, 22, 0.09);
 }
@@ -34,7 +34,7 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 92% -10%, rgba(196, 73, 12, 0.07), transparent 28rem),
+    radial-gradient(circle at 92% -10%, rgba(214, 41, 118, 0.07), transparent 28rem),
     var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);

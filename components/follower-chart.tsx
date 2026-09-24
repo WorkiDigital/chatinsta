@@ -33,7 +33,7 @@ export interface FollowerChartPoint {
 
 // Colors read against the light chart surface (#ffffff): the accent line clears
 // 3:1 contrast and grid/axis text match the muted/border tokens. See globals.css.
-const SERIES_COLOR = "#c4490c";
+const SERIES_COLOR = "#d62976";
 const GRID_COLOR = "#e7e5df";
 const AXIS_TEXT = "#6f6d68";
 
