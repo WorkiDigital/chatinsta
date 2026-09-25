@@ -33,6 +33,35 @@ Each key is bound to the workspace that created it. It cannot read or modify a
 different workspace. Revoke a key from Settings to remove its access
 immediately.
 
+## Connect ChatGPT
+
+ChatGPT uses OAuth 2.1 instead of a fixed API-key header. In ChatGPT developer
+mode, create an MCP app with:
+
+- **Name:** `OpenReply Instagram`
+- **Server URL:** `https://YOUR_DOMAIN/api/mcp`
+- **Authentication:** `OAuth`
+
+Do not paste an `imcp_...` key into the ChatGPT form. ChatGPT discovers the
+OAuth endpoints automatically, redirects the user to the OpenReply login and
+consent screen, and then uses short-lived access tokens with rotating refresh
+tokens.
+
+Only a workspace owner or admin can approve the connection. The OAuth grant is
+bound to that workspace and carries `flows:read` and `flows:write` scopes.
+The existing API-key flow remains available for Claude and other MCP clients
+that support custom request headers.
+
+The deployment must use HTTPS and `NEXTAUTH_URL` must be the exact public
+origin, for example:
+
+```text
+NEXTAUTH_URL=https://openreply.example
+```
+
+After deploying a version that adds OAuth, run the normal Prisma migrations
+before creating the app in ChatGPT.
+
 ## Available tools
 
 | Tool | Purpose |
@@ -139,5 +168,5 @@ repository.
 ## Deployment
 
 The normal Docker Compose deployment runs `prisma migrate deploy` before the web
-server starts. After deploying this version, the `McpApiKey` table is therefore
-created automatically. No new EasyPanel environment variable is required.
+server starts. The MCP API-key and OAuth tables are therefore created
+automatically. No new EasyPanel environment variable is required.

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   update: vi.fn(),
+  oauthFindUnique: vi.fn(),
+  oauthUpdate: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -10,6 +12,10 @@ vi.mock("@/lib/db/client", () => ({
     mcpApiKey: {
       findUnique: mocks.findUnique,
       update: mocks.update,
+    },
+    mcpOAuthGrant: {
+      findUnique: mocks.oauthFindUnique,
+      update: mocks.oauthUpdate,
     },
   },
 }));
@@ -96,6 +102,8 @@ describe("MCP API keys", () => {
       keyId: "key_1",
       workspaceId: "workspace_1",
       token: "imcp_active",
+      clientId: "key_1",
+      scopes: ["flows:read", "flows:write"],
     });
     expect(mocks.findUnique).toHaveBeenCalledWith({
       where: { tokenHash: hashMcpToken("imcp_active") },
@@ -103,6 +111,37 @@ describe("MCP API keys", () => {
     });
     expect(mocks.update).toHaveBeenCalledWith({
       where: { id: "key_1" },
+      data: { lastUsedAt: expect.any(Date) },
+    });
+  });
+
+  it("authenticates an active ChatGPT OAuth access token", async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
+    mocks.oauthFindUnique.mockResolvedValue({
+      id: "grant_1",
+      workspaceId: "workspace_1",
+      clientId: "https://chatgpt.com/oauth/client.json",
+      scopes: ["flows:read", "flows:write", "offline_access"],
+      resource: "http://localhost:3000/api/mcp",
+      accessTokenExpiresAt: expiresAt,
+      revokedAt: null,
+    });
+    mocks.oauthUpdate.mockResolvedValue({});
+
+    const request = new Request("https://example.com/api/mcp", {
+      headers: { Authorization: "Bearer imcpo_active" },
+    });
+    await expect(authenticateMcpRequest(request)).resolves.toEqual({
+      keyId: "grant_1",
+      workspaceId: "workspace_1",
+      token: "imcpo_active",
+      clientId: "https://chatgpt.com/oauth/client.json",
+      scopes: ["flows:read", "flows:write", "offline_access"],
+      expiresAt: Math.floor(expiresAt.getTime() / 1000),
+      resource: "http://localhost:3000/api/mcp",
+    });
+    expect(mocks.oauthUpdate).toHaveBeenCalledWith({
+      where: { id: "grant_1" },
       data: { lastUsedAt: expect.any(Date) },
     });
   });

@@ -95,7 +95,7 @@ Full environment variables and the production layout are in [docs/setup.md](docs
 The self-hosted app includes a workspace-scoped remote MCP server for AI clients.
 Create a revocable key under **Settings → MCP access**, then connect the client
 to `https://your-domain/api/mcp`. See [docs/mcp.md](docs/mcp.md) for tools and
-configuration.
+configuration, including OAuth setup for ChatGPT.
 
 ## Set it up with your AI assistant
 

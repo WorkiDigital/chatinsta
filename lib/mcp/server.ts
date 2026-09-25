@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, requireScopes } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { buildInitialCampaignLinks, syncCampaignLinks } from "@/lib/campaigns/links";
@@ -17,6 +17,20 @@ import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
 import { reserveManualMessageSlot, releaseManualMessageSlot } from "@/lib/utils/rate-limiter";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+const READ_TOOL_AUTH = {
+  scopeChallenge: requireScopes("flows:read"),
+  _meta: {
+    securitySchemes: [{ type: "oauth2", scopes: ["flows:read"] }],
+  },
+};
+
+const WRITE_TOOL_AUTH = {
+  scopeChallenge: requireScopes("flows:write"),
+  _meta: {
+    securitySchemes: [{ type: "oauth2", scopes: ["flows:write"] }],
+  },
+};
 
 function isWithinMessagingWindow(iso: string | null | undefined): boolean {
   if (!iso) return false;
@@ -162,6 +176,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
       description: "List the Instagram accounts connected to this workspace. Use an account id when creating a flow.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async () => {
       try {
@@ -195,6 +210,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         isActive: z.boolean().optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async ({ instagramAccountId, isActive }) => {
       try {
@@ -242,6 +258,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
       description: "Read the complete configuration of one flow before editing it.",
       inputSchema: z.object({ flowId: z.string().min(1) }),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async ({ flowId }) => {
       try {
@@ -265,6 +282,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered.",
       inputSchema: createFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      ...WRITE_TOOL_AUTH,
     },
     async (input) => {
       try {
@@ -331,6 +349,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM.",
       inputSchema: updateFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      ...WRITE_TOOL_AUTH,
     },
     async ({ flowId, trackedDestinationUrl, publicReplyMessages, ...changes }) => {
       try {
@@ -414,6 +433,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
       description: "Activate or pause one flow without changing the rest of its configuration.",
       inputSchema: z.object({ flowId: z.string().min(1), isActive: z.boolean() }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      ...WRITE_TOOL_AUTH,
     },
     async ({ flowId, isActive }) => {
       try {
@@ -446,6 +466,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         unreadOnly: z.boolean().optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async ({ instagramAccountId, limit, cursor, unreadOnly }) => {
       try {
@@ -523,6 +544,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         cursor: z.string().min(1).optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async ({ conversationId, instagramAccountId, limit, cursor }) => {
       try {
@@ -627,6 +649,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "sent message shows up in the dashboard inbox like any manual reply, tagged as manual (not flow) origin.",
       inputSchema: sendMessageSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      ...WRITE_TOOL_AUTH,
     },
     async ({ conversationId, instagramAccountId, text, buttonLabel, buttonUrl }) => {
       try {
@@ -697,6 +720,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "workspace.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false },
+      ...READ_TOOL_AUTH,
     },
     async () => {
       try {

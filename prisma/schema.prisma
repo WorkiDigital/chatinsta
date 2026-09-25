@@ -26,21 +26,23 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  sessions          Session[]
-  ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
-  workspaceMembers  WorkspaceMember[]
-  sentInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
+  sessions         Session[]
+  ownedWorkspaces  Workspace[]                 @relation("WorkspaceOwner")
+  workspaceMembers WorkspaceMember[]
+  mcpOAuthCodes    McpOAuthAuthorizationCode[]
+  mcpOAuthGrants   McpOAuthGrant[]
+  sentInvitations  WorkspaceInvitation[]       @relation("WorkspaceInvitationsSent")
 }
 
 // Self-hosted session store. The cookie carries only the raw token; this
 // table stores its SHA-256 hash, so a database dump alone can't be replayed
 // as a live session.
 model Session {
-  id           String   @id @default(cuid())
-  tokenHash    String   @unique
-  userId       String
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -68,6 +70,8 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
+  mcpOAuthCodes     McpOAuthAuthorizationCode[]
+  mcpOAuthGrants    McpOAuthGrant[]
   mcpApiKeys        McpApiKey[]
 
   @@index([ownerId])
@@ -87,6 +91,55 @@ model McpApiKey {
 
   @@index([workspaceId])
   @@index([workspaceId, revokedAt])
+}
+
+// Short-lived, single-use OAuth authorization codes issued after an OpenReply
+// admin approves ChatGPT access. Only the SHA-256 hash is persisted.
+model McpOAuthAuthorizationCode {
+  id            String    @id @default(cuid())
+  codeHash      String    @unique
+  workspaceId   String
+  userId        String
+  clientId      String
+  redirectUri   String
+  resource      String
+  scopes        String[]
+  codeChallenge String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// One OAuth grant owns an access/refresh-token pair. Refresh rotates the pair
+// and revokes this row, making refresh-token replay fail closed.
+model McpOAuthGrant {
+  id                    String    @id @default(cuid())
+  workspaceId           String
+  userId                String
+  clientId              String
+  resource              String
+  scopes                String[]
+  accessTokenHash       String    @unique
+  refreshTokenHash      String    @unique
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  createdAt             DateTime  @default(now())
+  lastUsedAt            DateTime?
+  revokedAt             DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, revokedAt])
+  @@index([userId])
+  @@index([refreshTokenExpiresAt])
 }
 
 model WorkspaceMember {
@@ -126,23 +179,23 @@ model WorkspaceInvitation {
 }
 
 model InstagramAccount {
-  id                String   @id @default(cuid())
+  id                String            @id @default(cuid())
   workspaceId       String
-  instagramId       String   @unique
+  instagramId       String            @unique
   username          String
   name              String?
   provider          InstagramProvider @default(META)
   zernioAccountId   String?
   accessToken       String
   tokenExpiresAt    DateTime?
-  webhookSubscribed Boolean  @default(false)
-  connectedAt       DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  webhookSubscribed Boolean           @default(false)
+  connectedAt       DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  automations Automation[]
-  dmLogs      DmLog[]
-  linkClicks  LinkClick[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automations       Automation[]
+  dmLogs            DmLog[]
+  linkClicks        LinkClick[]
   followerSnapshots FollowerSnapshot[]
 
   @@index([workspaceId])
@@ -169,42 +222,42 @@ model FollowerSnapshot {
 }
 
 model Automation {
-  id                 String   @id @default(cuid())
+  id                 String @id @default(cuid())
   workspaceId        String
   instagramAccountId String
 
-  name           String
-  goal           String?
-  postId         String?
-  postUrl        String?
-  pendingNextReel Boolean @default(false)
-  matchAnyPost   Boolean @default(false)
-  keywords       String[]
-  matchAnyWord   Boolean @default(false)
+  name                    String
+  goal                    String?
+  postId                  String?
+  postUrl                 String?
+  pendingNextReel         Boolean  @default(false)
+  matchAnyPost            Boolean  @default(false)
+  keywords                String[]
+  matchAnyWord            Boolean  @default(false)
   // Also fire this campaign when someone sends a DM whose text matches the
   // keywords above. Independent of the post trigger — a DM has no media, so
   // postId / matchAnyPost do not apply to it.
-  dmTriggerEnabled Boolean @default(false)
-  dmMessage      String
-  openingDmEnabled     Boolean @default(false)
-  openingDmMessage     String?
-  openingDmButtonLabel String?
-  linkButtonLabel      String?
-  requireFollow           Boolean @default(false)
+  dmTriggerEnabled        Boolean  @default(false)
+  dmMessage               String
+  openingDmEnabled        Boolean  @default(false)
+  openingDmMessage        String?
+  openingDmButtonLabel    String?
+  linkButtonLabel         String?
+  requireFollow           Boolean  @default(false)
   followPromptMessage     String?
   followPromptButtonLabel String?
-  followUpEnabled Boolean @default(false)
-  followUpMessage String?
+  followUpEnabled         Boolean  @default(false)
+  followUpMessage         String?
   // Minutes to wait after the link is delivered before sending the follow-up.
   // 0 sends it right away.
-  followUpDelayMinutes Int @default(0)
-  publicReplyEnabled Boolean @default(false)
-  publicReplyMessage String?
-  publicReplyMessages String[] @default([])
-  isActive       Boolean @default(true)
-  wholeWordMatch Boolean @default(true)
-  reportShareSlug    String? @unique
-  reportShareEnabled Boolean @default(true)
+  followUpDelayMinutes    Int      @default(0)
+  publicReplyEnabled      Boolean  @default(false)
+  publicReplyMessage      String?
+  publicReplyMessages     String[] @default([])
+  isActive                Boolean  @default(true)
+  wholeWordMatch          Boolean  @default(true)
+  reportShareSlug         String?  @unique
+  reportShareEnabled      Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -221,28 +274,28 @@ model Automation {
 }
 
 model DmLog {
-  id                 String     @id @default(cuid())
+  id                 String @id @default(cuid())
   workspaceId        String
   automationId       String
   instagramAccountId String
 
-  commenterId   String
-  commenterName String?
-  commentText   String
-  commentId     String
+  commenterId    String
+  commenterName  String?
+  commentText    String
+  commentId      String
   matchedKeyword String?
-  status        DmStatus @default(PENDING)
-  attempts      Int      @default(0)
-  dmSentAt      DateTime?
-  errorMessage  String?
+  status         DmStatus  @default(PENDING)
+  attempts       Int       @default(0)
+  dmSentAt       DateTime?
+  errorMessage   String?
 
   // The public comment reply is delivered independently of the DM, so its
   // outcome is tracked separately. publicReplySentAt makes it idempotent across
   // retries; a DM failure never blocks or re-posts the public reply.
-  dmDeliveryUnconfirmed Boolean @default(false)
-  publicReplyDeliveryUnconfirmed Boolean @default(false)
-  publicReplySentAt DateTime?
-  publicReplyError  String?
+  dmDeliveryUnconfirmed          Boolean   @default(false)
+  publicReplyDeliveryUnconfirmed Boolean   @default(false)
+  publicReplySentAt              DateTime?
+  publicReplyError               String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -319,14 +372,14 @@ model LinkClick {
 }
 
 model WebhookEvent {
-  id          String        @id @default(cuid())
-  workspaceId String?
-  object      String?
-  payload     Json
-  status      WebhookStatus @default(PENDING)
+  id           String        @id @default(cuid())
+  workspaceId  String?
+  object       String?
+  payload      Json
+  status       WebhookStatus @default(PENDING)
   errorMessage String?
-  createdAt   DateTime      @default(now())
-  processedAt DateTime?
+  createdAt    DateTime      @default(now())
+  processedAt  DateTime?
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
@@ -335,13 +388,13 @@ model WebhookEvent {
 }
 
 model OperationalEvent {
-  id          String                @id @default(cuid())
+  id          String                 @id @default(cuid())
   workspaceId String?
   source      OperationalEventSource
-  level       OperationalEventLevel @default(INFO)
+  level       OperationalEventLevel  @default(INFO)
   message     String
   payload     Json?
-  createdAt   DateTime              @default(now())
+  createdAt   DateTime               @default(now())
   resolvedAt  DateTime?
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
@@ -394,25 +447,24 @@ enum OperationalEventLevel {
   ERROR
 }
 
-
 enum InstagramProvider {
   META
   ZERNIO
 }
 
 model ZernioConnection {
-  workspaceId    String @id
-  apiKey         String
-  profileId      String?
-  webhookId      String?
-  webhookSecret  String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId   String    @id
+  apiKey        String
+  profileId     String?
+  webhookId     String?
+  webhookSecret String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 // Claims persist independently of BullMQ retention so old taps never resend.
 model PostbackDelivery {
-  id String @id
+  id        String   @id
   createdAt DateTime @default(now())
 }

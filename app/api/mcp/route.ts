@@ -2,6 +2,9 @@ import { createMcpHandler } from "@modelcontextprotocol/server";
 import { getBaseUrl } from "@/lib/env";
 import { authenticateMcpRequest } from "@/lib/mcp/api-keys";
 import { createInstaManyMcpServer } from "@/lib/mcp/server";
+import {
+  getProtectedResourceMetadataUrl,
+} from "@/lib/mcp/oauth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,7 +32,8 @@ function unauthorized() {
       status: 401,
       headers: {
         "Cache-Control": "no-store",
-        "WWW-Authenticate": 'Bearer realm="InstaMany MCP"',
+        "WWW-Authenticate":
+          `Bearer resource_metadata="${getProtectedResourceMetadataUrl()}", scope="flows:read flows:write"`,
       },
     }
   );
@@ -40,6 +44,8 @@ const CLAUDE_ORIGINS = new Set([
   "https://claude.com",
   "https://www.claude.ai",
   "https://www.claude.com",
+  "https://chatgpt.com",
+  "https://www.chatgpt.com",
 ]);
 
 function originIsAllowed(origin: string): boolean {
@@ -50,7 +56,10 @@ function withCors(response: Response, origin: string | null): Response {
   if (!origin || !originIsAllowed(origin)) return response;
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", origin);
-  headers.set("Access-Control-Expose-Headers", "Mcp-Session-Id");
+  headers.set(
+    "Access-Control-Expose-Headers",
+    "Mcp-Session-Id, WWW-Authenticate"
+  );
   headers.append("Vary", "Origin");
   return new Response(response.body, {
     status: response.status,
@@ -71,8 +80,11 @@ async function serve(request: Request) {
   const response = await handler.fetch(request, {
     authInfo: {
       token: auth.token,
-      clientId: auth.keyId,
-      scopes: ["flows:read", "flows:write"],
+      clientId: auth.clientId,
+      scopes: auth.scopes,
+      expiresAt: auth.expiresAt,
+      resource: auth.resource ? new URL(auth.resource) : undefined,
+      resourceMetadataUrl: getProtectedResourceMetadataUrl(),
       extra: { workspaceId: auth.workspaceId },
     },
   });

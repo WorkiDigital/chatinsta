@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { getMcpResourceUrl } from "@/lib/mcp/oauth";
 
 const TOKEN_PREFIX = "imcp_";
 
@@ -40,9 +41,52 @@ export async function authenticateMcpRequest(request: Request): Promise<{
   keyId: string;
   workspaceId: string;
   token: string;
+  clientId: string;
+  scopes: string[];
+  expiresAt?: number;
+  resource?: string;
 } | null> {
   const token = readBearerToken(request);
-  if (!token?.startsWith(TOKEN_PREFIX)) return null;
+  if (!token) return null;
+
+  if (token.startsWith("imcpo_")) {
+    const grant = await prisma.mcpOAuthGrant.findUnique({
+      where: { accessTokenHash: hashMcpToken(token) },
+      select: {
+        id: true,
+        workspaceId: true,
+        clientId: true,
+        scopes: true,
+        resource: true,
+        accessTokenExpiresAt: true,
+        revokedAt: true,
+      },
+    });
+    if (
+      !grant ||
+      grant.revokedAt ||
+      grant.accessTokenExpiresAt <= new Date() ||
+      grant.resource !== getMcpResourceUrl()
+    ) {
+      return null;
+    }
+
+    await prisma.mcpOAuthGrant.update({
+      where: { id: grant.id },
+      data: { lastUsedAt: new Date() },
+    });
+    return {
+      keyId: grant.id,
+      workspaceId: grant.workspaceId,
+      token,
+      clientId: grant.clientId,
+      scopes: grant.scopes,
+      expiresAt: Math.floor(grant.accessTokenExpiresAt.getTime() / 1000),
+      resource: grant.resource,
+    };
+  }
+
+  if (!token.startsWith(TOKEN_PREFIX)) return null;
 
   const key = await prisma.mcpApiKey.findUnique({
     where: { tokenHash: hashMcpToken(token) },
@@ -55,5 +99,11 @@ export async function authenticateMcpRequest(request: Request): Promise<{
     data: { lastUsedAt: new Date() },
   });
 
-  return { keyId: key.id, workspaceId: key.workspaceId, token };
+  return {
+    keyId: key.id,
+    workspaceId: key.workspaceId,
+    token,
+    clientId: key.id,
+    scopes: ["flows:read", "flows:write"],
+  };
 }
