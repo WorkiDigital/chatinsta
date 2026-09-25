@@ -112,18 +112,27 @@ export function validateAuthorizationParams(
     };
   }
 
-  const scopes = [...new Set((params.get("scope") ?? "").split(/\s+/).filter(Boolean))];
-  const unsupported = scopes.filter(
+  // Many OAuth clients, ChatGPT's connector included, either omit `scope`
+  // entirely or request only a subset of what a server advertises, expecting
+  // the server to grant a sensible default or the requested subset — not
+  // reject the request outright. Scopes are informational only today (no
+  // code gates MCP tool access by them; see app/api/mcp/route.ts), so the
+  // only thing worth rejecting here is a scope the server has never heard
+  // of. An empty request grants the full default set.
+  const requestedScopes = [
+    ...new Set((params.get("scope") ?? "").split(/\s+/).filter(Boolean)),
+  ];
+  const unsupported = requestedScopes.filter(
     (scope) => !(MCP_OAUTH_SCOPES as readonly string[]).includes(scope)
   );
-  const missing = MCP_OAUTH_SCOPES.filter((scope) => !scopes.includes(scope));
-  if (unsupported.length > 0 || missing.length > 0) {
+  if (unsupported.length > 0) {
     return {
       success: false,
       error: "invalid_scope",
-      description: `Required scopes: ${MCP_OAUTH_SCOPES.join(" ")}.`,
+      description: `Unsupported scope(s): ${unsupported.join(" ")}. Supported scopes: ${MCP_OAUTH_SCOPES.join(" ")}.`,
     };
   }
+  const scopes = requestedScopes.length > 0 ? requestedScopes : [...MCP_OAUTH_SCOPES];
 
   const state = params.get("state") ?? undefined;
   if (state && state.length > 2048) {
