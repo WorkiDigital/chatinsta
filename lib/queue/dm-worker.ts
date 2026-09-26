@@ -6,6 +6,8 @@ import {
   MESSAGE_JOB_NAME,
   POSTBACK_JOB_NAME,
   FOLLOWUP_JOB_NAME,
+  WEBHOOK_JOB_NAME,
+  type DeliverWebhookJob,
   type DmQueueJob,
   type ProcessCommentJob,
   type ProcessMessageJob,
@@ -44,6 +46,10 @@ import {
   renderMessageWithoutLink,
 } from "@/lib/tracking/message";
 import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
+import {
+  enqueueLeadWebhook,
+  processWebhookDelivery,
+} from "@/lib/webhooks/outbound";
 
 import {
   ZernioApiError,
@@ -51,6 +57,9 @@ import {
 } from "@/lib/zernio/client";
 
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
+// Webhook receivers usually recover in seconds, not the hour-scale windows
+// Instagram rate limits need, so they get a much shorter schedule.
+const WEBHOOK_BACKOFF_DELAYS = [30 * 1000, 2 * 60 * 1000, 10 * 60 * 1000];
 
 function formatError(error: unknown): string {
   if (error instanceof MetaApiError) {
@@ -213,7 +222,7 @@ async function sendRevealDirectMessage({
 }
 
 
-function connectionScope(data: DmQueueJob) {
+function connectionScope(data: Exclude<DmQueueJob, DeliverWebhookJob>) {
   return data.accountConnectionId ? { instagramAccountId: data.accountConnectionId } : {};
 }
 
@@ -728,6 +737,20 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           errorMessage: null,
         },
       });
+
+      // Only the direct link DM counts as a delivered lead here; an opening DM
+      // or follow prompt fires the webhook later, from the button tap.
+      if (!useOpeningDm && !sendFollowPrompt) {
+        await enqueueLeadWebhook({
+          automation,
+          contact: { instagramUserId: commenterId, username: commenterName ?? null },
+          trigger: {
+            source: "comment",
+            text: commentText,
+            matchedKeyword: matchResult.matchedKeyword,
+          },
+        });
+      }
     } catch (error) {
       // The rate slot was reserved before the send; this send did not deliver a
       // DM, so hand the slot back instead of burning it (and burning more on
@@ -857,9 +880,10 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   }
 
   // Personalize {username} from the opening DM log for this user, if present.
+  // The comment text and keyword ride along into the lead webhook.
   const openingLog = await prisma.dmLog.findFirst({
     where: { automationId: automation.id, commenterId: userId },
-    select: { commenterName: true },
+    select: { commenterName: true, commentText: true, matchedKeyword: true },
   });
   const commenterName = openingLog?.commenterName ?? null;
 
@@ -1015,6 +1039,15 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
         dmSentAt: new Date(),
       },
       update: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+    });
+    await enqueueLeadWebhook({
+      automation,
+      contact: { instagramUserId: userId, username: commenterName },
+      trigger: {
+        source: "button",
+        text: openingLog?.commentText ?? null,
+        matchedKeyword: openingLog?.matchedKeyword ?? null,
+      },
     });
   } catch (error) {
     await releaseWorkspaceDMReservation(
@@ -1355,6 +1388,20 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           errorMessage: null,
         },
       });
+
+      // Behind the follow prompt no link went out yet — the webhook fires on
+      // the button tap instead (processPostback).
+      if (!sendFollowPrompt) {
+        await enqueueLeadWebhook({
+          automation,
+          contact: { instagramUserId: senderId, username: commenterName },
+          trigger: {
+            source: "dm",
+            text: messageText,
+            matchedKeyword: matchResult.matchedKeyword,
+          },
+        });
+      }
     } catch (error) {
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
@@ -1397,6 +1444,9 @@ async function dispatchJob(job: Job<DmQueueJob>): Promise<void> {
   if (job.name === MESSAGE_JOB_NAME) {
     return processMessage(job as Job<ProcessMessageJob>);
   }
+  if (job.name === WEBHOOK_JOB_NAME) {
+    return processWebhookDelivery(job as Job<DeliverWebhookJob>);
+  }
   return processComment(job as Job<ProcessCommentJob>);
 }
 
@@ -1415,7 +1465,10 @@ async function recordWorkerFailure(
   error: Error
 ) {
   try {
-    const instagramAccountId = job?.data.instagramAccountId;
+    const instagramAccountId =
+      job && "instagramAccountId" in job.data
+        ? job.data.instagramAccountId
+        : undefined;
     const commentId =
       job && "commentId" in job.data ? job.data.commentId : null;
     const account = instagramAccountId
@@ -1460,8 +1513,16 @@ export function createDMWorker(): Worker<DmQueueJob> {
     connection: getRedisConnection(),
     concurrency: 5,
     settings: {
-      backoffStrategy: (attemptsMade: number) =>
-        BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],
+      backoffStrategy: (
+        attemptsMade: number,
+        _type?: string,
+        _err?: Error,
+        job?: { name: string }
+      ) => {
+        const delays =
+          job?.name === WEBHOOK_JOB_NAME ? WEBHOOK_BACKOFF_DELAYS : BACKOFF_DELAYS;
+        return delays[Math.min(attemptsMade - 1, delays.length - 1)];
+      },
     },
   });
 
@@ -1474,6 +1535,10 @@ export function createDMWorker(): Worker<DmQueueJob> {
       `[DM Worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}):`,
       err.message
     );
+    // A webhook's outcome lives on its WebhookDelivery row (surfaced in
+    // Diagnostics); one customer's broken endpoint shouldn't fill the
+    // deployment-wide worker alert list on every retry.
+    if (job?.name === WEBHOOK_JOB_NAME) return;
     void recordWorkerFailure(job, err);
   });
 

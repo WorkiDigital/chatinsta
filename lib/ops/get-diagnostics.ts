@@ -7,7 +7,8 @@ import { getWorkerAlerts, getWorkerHealth } from "@/lib/ops/worker-health";
  * queue depth, worker heartbeat/alerts (shared infra, not scoped to one
  * workspace — the DM worker and its Redis-backed health/alerts serve every
  * workspace on this deployment), plus this workspace's own webhook, DM, and
- * token-refresh failures.
+ * token-refresh failures. `webhookFailures` are INBOUND Instagram webhooks;
+ * `outboundWebhookFailures` are lead webhooks this workspace's campaigns send.
  */
 export async function getDiagnostics(workspaceId: string) {
   const [
@@ -18,6 +19,7 @@ export async function getDiagnostics(workspaceId: string) {
     dmFailures,
     tokenRefreshFailures,
     operationalEvents,
+    outboundWebhookFailures,
   ] = await Promise.all([
     getDMQueue().getJobCounts("waiting", "active", "delayed", "failed"),
     getWorkerHealth(),
@@ -84,6 +86,21 @@ export async function getDiagnostics(workspaceId: string) {
         resolvedAt: true,
       },
     }),
+    prisma.webhookDelivery.findMany({
+      where: { workspaceId, status: "FAILED" },
+      orderBy: { updatedAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        event: true,
+        url: true,
+        statusCode: true,
+        attempts: true,
+        errorMessage: true,
+        updatedAt: true,
+        automation: { select: { name: true } },
+      },
+    }),
   ]);
 
   return {
@@ -94,5 +111,6 @@ export async function getDiagnostics(workspaceId: string) {
     dmFailures,
     tokenRefreshFailures,
     operationalEvents,
+    outboundWebhookFailures,
   };
 }

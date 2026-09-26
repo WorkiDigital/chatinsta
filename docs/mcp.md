@@ -100,6 +100,10 @@ the DM sequence:
 - `followUpEnabled`, `followUpMessage`, `followUpDelayMinutes` — send a
   follow-up DM after the link is delivered, delayed by `followUpDelayMinutes`
   (0-1440 minutes).
+- `webhookUrl` — an `https://` URL that receives a signed `lead.link_delivered`
+  POST for each new lead (see [webhooks.md](webhooks.md)). Pass `""` or `null`
+  on `update_flow` to stop. The signing secret is never returned over MCP;
+  copy it from the campaign editor.
 
 Setting any of the three `*Enabled`/`requireFollow` flags to `false` on
 `update_flow` clears that section's stored messages.

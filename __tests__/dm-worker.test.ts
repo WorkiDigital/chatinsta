@@ -118,6 +118,7 @@ vi.mock("@/lib/queue/client", () => ({
   POSTBACK_JOB_NAME: "process-postback",
   FOLLOWUP_JOB_NAME: "process-followup",
   MESSAGE_JOB_NAME: "process-message",
+  WEBHOOK_JOB_NAME: "deliver-webhook",
 }));
 
 vi.mock("bullmq", () => {

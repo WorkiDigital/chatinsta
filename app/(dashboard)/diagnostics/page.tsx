@@ -51,6 +51,15 @@ interface DiagnosticsData {
     createdAt: string;
     resolvedAt: string | null;
   }>;
+  outboundWebhookFailures: Array<{
+    id: string;
+    url: string;
+    statusCode: number | null;
+    attempts: number;
+    errorMessage: string | null;
+    updatedAt: string;
+    automation: { name: string };
+  }>;
 }
 
 function formatDate(value: string, locale: string) {
@@ -267,6 +276,28 @@ export default function DiagnosticsPage() {
           )}
         </Section>
 
+        <Section title={t("Lead Webhook Failures")}>
+          {data?.outboundWebhookFailures?.length ? (
+            <div className="space-y-3">
+              {data.outboundWebhookFailures.map((delivery) => (
+                <div key={delivery.id} className="border-b border-border pb-3 last:border-0">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {delivery.automation.name}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-muted">{delivery.url}</p>
+                  <p className="mt-1 text-xs text-error">
+                    {delivery.errorMessage ?? t("Unknown error")}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    {formatDate(delivery.updatedAt, locale)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState label={t("No failed lead webhooks.")} />
+          )}
+        </Section>
       </div>
 
       <Section title={t("Operational Event Timeline")}>
