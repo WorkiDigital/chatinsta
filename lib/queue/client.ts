@@ -70,15 +70,23 @@ export interface ProcessMessageJob {
   senderId: string;
 }
 
+// Delivers one recorded outbound lead webhook (see lib/webhooks/outbound.ts).
+// Runs as its own job so a failing receiver never retries the DM it follows.
+export interface DeliverWebhookJob {
+  deliveryId: string;
+}
+
 export type DmQueueJob =
   | ProcessCommentJob
   | ProcessPostbackJob
   | ProcessFollowUpJob
-  | ProcessMessageJob;
+  | ProcessMessageJob
+  | DeliverWebhookJob;
 
 export const POSTBACK_JOB_NAME = "process-postback";
 export const FOLLOWUP_JOB_NAME = "process-followup";
 export const MESSAGE_JOB_NAME = "process-message";
+export const WEBHOOK_JOB_NAME = "deliver-webhook";
 
 let dmQueue: Queue<DmQueueJob> | null = null;
 

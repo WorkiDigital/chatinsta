@@ -15,6 +15,22 @@ import { getDiagnostics } from "@/lib/ops/get-diagnostics";
 import { generateReportShareSlug } from "@/lib/reports/share";
 import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
 import { reserveManualMessageSlot, releaseManualMessageSlot } from "@/lib/utils/rate-limiter";
+import { encryptToken } from "@/lib/meta/oauth";
+import {
+  generateWebhookSecret,
+  omitWebhookSecret,
+  validateWebhookUrl,
+} from "@/lib/webhooks/outbound";
+
+// Same https/SSRF rules the campaign API and the sender enforce.
+const webhookUrlField = z
+  .string()
+  .trim()
+  .max(2048)
+  .superRefine((value, ctx) => {
+    const error = validateWebhookUrl(value);
+    if (error) ctx.addIssue({ code: "custom", message: error });
+  });
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
@@ -77,6 +93,7 @@ const createFlowSchema = z
     followUpEnabled: z.boolean().default(false),
     followUpMessage: z.string().trim().min(1).max(1000).optional(),
     followUpDelayMinutes: z.number().int().min(0).max(1440).default(0),
+    webhookUrl: webhookUrlField.optional(),
     publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
     wholeWordMatch: z.boolean().default(true),
     isActive: z.boolean().default(false),
@@ -130,6 +147,7 @@ const updateFlowSchema = z.object({
   followUpEnabled: z.boolean().optional(),
   followUpMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
   followUpDelayMinutes: z.number().int().min(0).max(1440).optional(),
+  webhookUrl: z.union([webhookUrlField, z.literal(""), z.null()]).optional(),
   publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).optional(),
   wholeWordMatch: z.boolean().optional(),
 });
@@ -149,13 +167,15 @@ function errorResult(error: unknown) {
 }
 
 async function findWorkspaceFlow(workspaceId: string, flowId: string) {
-  return prisma.automation.findFirst({
+  const flow = await prisma.automation.findFirst({
     where: { id: flowId, workspaceId },
     include: {
       instagramAccount: { select: { id: true, username: true, provider: true } },
       trackedLinks: { orderBy: TRACKED_LINK_ORDER },
     },
   });
+  // Never hand the (encrypted) webhook signing secret to an MCP client.
+  return flow ? omitWebhookSecret(flow) : null;
 }
 
 export function createInstaManyMcpServer(workspaceId: string) {
@@ -236,6 +256,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
             openingDmEnabled: true,
             requireFollow: true,
             followUpEnabled: true,
+            webhookUrl: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -279,7 +300,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Create an Instagram comment-to-DM flow. Targets can be any_post, next_reel, or specific_post. New flows are inactive by default. " +
         "Set openingDmEnabled with openingDmMessage and openingDmButtonLabel to send an opening DM whose link renders as a button instead of plain text. " +
         "Set requireFollow with followPromptMessage and followPromptButtonLabel to gate the link behind a follow check. " +
-        "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered.",
+        "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered. " +
+        "Set webhookUrl (https only) to POST each new lead to your CRM/automation tool when they receive the link; the signing secret is managed in the dashboard.",
       inputSchema: createFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       ...WRITE_TOOL_AUTH,
@@ -322,6 +344,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
             followUpEnabled: input.followUpEnabled,
             followUpMessage: input.followUpEnabled ? input.followUpMessage ?? null : null,
             followUpDelayMinutes: input.followUpEnabled ? input.followUpDelayMinutes : 0,
+            webhookUrl: input.webhookUrl || null,
+            webhookSecret: input.webhookUrl ? encryptToken(generateWebhookSecret()) : null,
             publicReplyEnabled: publicReplyMessages.length > 0,
             publicReplyMessage: publicReplyMessages[0] ?? null,
             publicReplyMessages,
@@ -332,7 +356,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
           },
           include: { trackedLinks: { orderBy: TRACKED_LINK_ORDER } },
         });
-        return jsonResult({ created: true, flow });
+        return jsonResult({ created: true, flow: omitWebhookSecret(flow) });
       } catch (error) {
         return errorResult(error);
       }
@@ -346,7 +370,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
       description:
         "Update the editable message and matching settings of an existing flow. Use an empty trackedDestinationUrl to remove its primary link. " +
         "Setting openingDmEnabled, requireFollow, or followUpEnabled to false clears that section's messages. " +
-        "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM.",
+        "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM. " +
+        "Set webhookUrl to an https URL to send leads there, or to an empty string or null to stop.",
       inputSchema: updateFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       ...WRITE_TOOL_AUTH,
@@ -390,6 +415,10 @@ export function createInstaManyMcpServer(workspaceId: string) {
         }
 
         const data: Prisma.AutomationUpdateInput = { ...changes };
+        if (changes.webhookUrl === "") data.webhookUrl = null;
+        if (changes.webhookUrl && !existing.hasWebhookSecret) {
+          data.webhookSecret = encryptToken(generateWebhookSecret());
+        }
         if (changes.matchAnyWord === true) data.keywords = [];
         if (changes.openingDmEnabled === false) {
           data.openingDmMessage = null;

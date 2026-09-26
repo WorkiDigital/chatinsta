@@ -14,6 +14,28 @@ import {
   canManageWorkspace,
   getCurrentWorkspaceContext,
 } from "@/lib/workspace-access";
+import { encryptToken } from "@/lib/meta/oauth";
+import {
+  generateWebhookSecret,
+  omitWebhookSecret,
+  validateWebhookUrl,
+} from "@/lib/webhooks/outbound";
+
+// Empty string (or null) disables the lead webhook; otherwise it must pass the
+// same https/SSRF checks the sender enforces.
+const webhookUrlSchema = z
+  .union([
+    z.literal(""),
+    z
+      .string()
+      .max(2048)
+      .superRefine((value, ctx) => {
+        const error = validateWebhookUrl(value);
+        if (error) ctx.addIssue({ code: "custom", message: error });
+      }),
+  ])
+  .optional()
+  .nullable();
 
 // This list is read-your-writes (created/imported campaigns must show up
 // immediately), so never cache it at the route or CDN layer.
@@ -62,6 +84,7 @@ const createAutomationSchema = z
       .optional()
       .nullable(),
     secondaryButtonLabel: z.string().max(20).optional().nullable(),
+    webhookUrl: webhookUrlSchema,
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
   })
@@ -123,6 +146,7 @@ const updateAutomationSchema = z.object({
     .optional()
     .nullable(),
   secondaryButtonLabel: z.string().max(20).optional().nullable(),
+  webhookUrl: webhookUrlSchema,
 });
 
 export async function GET(request: NextRequest) {
@@ -260,7 +284,7 @@ export async function GET(request: NextRequest) {
       };
 
       return {
-        ...automation,
+        ...omitWebhookSecret(automation),
         trackedLinks: automation.trackedLinks.map((link) => ({
           ...link,
           trackedUrl: buildTrackedUrl(link.slug),
@@ -410,6 +434,10 @@ export async function POST(request: NextRequest) {
         : null,
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
+      webhookUrl: parsed.data.webhookUrl || null,
+      webhookSecret: parsed.data.webhookUrl
+        ? encryptToken(generateWebhookSecret())
+        : null,
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -423,7 +451,7 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(
-    { success: true, data: automation },
+    { success: true, data: omitWebhookSecret(automation) },
     { status: 201 }
   );
 }
@@ -518,6 +546,14 @@ export async function PATCH(request: NextRequest) {
     automationData.publicReplyMessages = [];
     automationData.publicReplyMessage = null;
   }
+  // "" clears the webhook. Setting a URL on a campaign that has never had one
+  // mints its signing secret; an existing secret survives URL edits so the
+  // receiver doesn't have to be reconfigured.
+  const webhookData: { webhookSecret?: string } = {};
+  if (automationData.webhookUrl === "") automationData.webhookUrl = null;
+  if (automationData.webhookUrl && !existing.webhookSecret) {
+    webhookData.webhookSecret = encryptToken(generateWebhookSecret());
+  }
 
   // One transaction, so a save never lands half applied. Updating the campaign
   // first locks its row, which makes a second save of the same campaign wait
@@ -525,7 +561,7 @@ export async function PATCH(request: NextRequest) {
   const updated = await prisma.$transaction(async (tx) => {
     const campaign = await tx.automation.update({
       where: { id: automationId },
-      data: automationData,
+      data: { ...automationData, ...webhookData },
     });
 
     await syncCampaignLinks(tx, {
@@ -539,7 +575,7 @@ export async function PATCH(request: NextRequest) {
     return campaign;
   });
 
-  return NextResponse.json({ success: true, data: updated });
+  return NextResponse.json({ success: true, data: omitWebhookSecret(updated) });
 }
 
 export async function DELETE(request: NextRequest) {

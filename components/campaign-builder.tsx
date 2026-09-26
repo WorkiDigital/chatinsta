@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
+import WebhookSettings from "@/components/webhook-settings";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { readCache, writeCache } from "@/lib/client-cache";
 import {
@@ -54,6 +55,7 @@ interface LoadedCampaign {
   publicReplyMessages: string[];
   isActive: boolean;
   instagramAccountId: string;
+  webhookUrl?: string | null;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
@@ -182,6 +184,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpMessage, setFollowUpMessage] = useState("");
   const [followUpDelayMinutes, setFollowUpDelayMinutes] = useState(0);
+  const [webhookEnabled, setWebhookEnabled] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  // The URL as last saved: the secret/test panel only makes sense for a URL
+  // the server already has, not one still being typed.
+  const [savedWebhookUrl, setSavedWebhookUrl] = useState("");
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -290,6 +297,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setFollowUpEnabled(c.followUpEnabled ?? false);
         setFollowUpMessage(c.followUpMessage ?? "");
         setFollowUpDelayMinutes(c.followUpDelayMinutes ?? 0);
+        setWebhookEnabled(Boolean(c.webhookUrl));
+        setWebhookUrl(c.webhookUrl ?? "");
+        setSavedWebhookUrl(c.webhookUrl ?? "");
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -396,6 +406,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
     if (!dmMessage.trim()) return setError(t("Add the DM with the link."));
     if (openingDmEnabled && (!openingDmMessage.trim() || !openingDmButtonLabel.trim()))
       return setError(t("Your opening DM needs a message and a button label."));
+    if (webhookEnabled && !/^https:\/\/\S+$/i.test(webhookUrl.trim()))
+      return setError(t("Add an https:// URL to send your leads to."));
 
     setSaving(true);
 
@@ -429,6 +441,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       followUpEnabled,
       followUpMessage: followUpEnabled ? followUpMessage.trim() : "",
       followUpDelayMinutes: followUpEnabled ? followUpDelayMinutes : 0,
+      webhookUrl: webhookEnabled ? webhookUrl.trim() : "",
       isActive: activeValue,
     };
 
@@ -973,6 +986,42 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                     : t("Sent right after they tap through.")}
                   {" {username}"} {t("personalizes it. Max 24 hours, to stay inside Instagram's messaging window.")}
                 </p>
+              </div>
+            )}
+          </div>
+        </Section>
+
+        <Section title={t("And send the lead to")}>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                {t("a webhook (your CRM, n8n, Zapier…)")}
+              </span>
+              <Toggle
+                on={webhookEnabled}
+                onToggle={() => setWebhookEnabled(!webhookEnabled)}
+              />
+            </div>
+            {webhookEnabled && (
+              <div className="mt-3 space-y-2">
+                <input
+                  type="url"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  placeholder="https://"
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  maxLength={2048}
+                />
+                <p className="text-xs text-muted">
+                  {t("When someone receives the link, OpenReply POSTs their @, the comment and the keyword to this URL. Each person fires it once per campaign.")}
+                </p>
+                {mode === "edit" && campaignId && savedWebhookUrl && webhookUrl.trim() === savedWebhookUrl ? (
+                  <WebhookSettings campaignId={campaignId} />
+                ) : (
+                  <p className="text-xs text-muted">
+                    {t("Save the campaign to get the signing secret and send a test.")}
+                  </p>
+                )}
               </div>
             )}
           </div>

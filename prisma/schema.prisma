@@ -73,6 +73,7 @@ model Workspace {
   mcpOAuthCodes     McpOAuthAuthorizationCode[]
   mcpOAuthGrants    McpOAuthGrant[]
   mcpApiKeys        McpApiKey[]
+  webhookDeliveries WebhookDelivery[]
 
   @@index([ownerId])
 }
@@ -258,15 +259,22 @@ model Automation {
   wholeWordMatch          Boolean  @default(true)
   reportShareSlug         String?  @unique
   reportShareEnabled      Boolean  @default(true)
+  // Outbound lead webhook. A null URL means disabled. The secret signs every
+  // delivery (HMAC-SHA256) and is stored encrypted with encryptToken; it is
+  // generated server-side the first time a URL is set and kept across URL
+  // changes so receivers don't have to re-verify on every edit.
+  webhookUrl              String?
+  webhookSecret           String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
-  dmLogs           DmLog[]
-  trackedLinks     TrackedLink[]
-  linkClicks       LinkClick[]
+  dmLogs            DmLog[]
+  trackedLinks      TrackedLink[]
+  linkClicks        LinkClick[]
+  webhookDeliveries WebhookDelivery[]
 
   @@index([workspaceId])
   @@index([instagramAccountId])
@@ -431,6 +439,39 @@ enum DmStatus {
 enum WebhookStatus {
   PENDING
   PROCESSED
+  FAILED
+}
+
+// One row per outbound lead webhook delivery (not per HTTP attempt). The
+// unique (automationId, dedupeKey) keeps repeat button taps or redelivered
+// events from firing the same lead twice.
+model WebhookDelivery {
+  id           String                @id @default(cuid())
+  workspaceId  String
+  automationId String
+  event        String
+  dedupeKey    String
+  url          String
+  payload      Json
+  status       WebhookDeliveryStatus @default(PENDING)
+  attempts     Int                   @default(0)
+  statusCode   Int?
+  errorMessage String?
+  deliveredAt  DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, dedupeKey])
+  @@index([workspaceId, createdAt])
+  @@index([status])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCESS
   FAILED
 }
 
