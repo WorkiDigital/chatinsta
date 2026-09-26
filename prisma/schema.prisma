@@ -61,6 +61,7 @@ model Workspace {
   dmsSentThisPeriod Int      @default(0)
 
   zernioConnection  ZernioConnection?
+  aiConnection      AiConnection?
   members           WorkspaceMember[]
   invitations       WorkspaceInvitation[]
   instagramAccounts InstagramAccount[]
@@ -75,6 +76,7 @@ model Workspace {
   mcpApiKeys        McpApiKey[]
   webhookDeliveries WebhookDelivery[]
   contactAnswers    ContactAnswer[]
+  aiReplies         AiReply[]
 
   @@index([ownerId])
 }
@@ -272,6 +274,13 @@ model Automation {
   collectDataQuestion       String?
   collectDataFieldType      CollectDataFieldType @default(TEXT)
   collectDataInvalidMessage String?
+  // AI reply: answers a DM that matches no keyword and has no pending
+  // collect-data question, using aiReplyInstructions as the system prompt
+  // against the workspace's Anthropic key (Workspace.aiApiKey). Capped per
+  // contact by aiReplyMaxPerContact — see lib/ai/reply.ts.
+  aiReplyEnabled            Boolean              @default(false)
+  aiReplyInstructions       String?
+  aiReplyMaxPerContact      Int                  @default(5)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -283,6 +292,7 @@ model Automation {
   linkClicks        LinkClick[]
   webhookDeliveries WebhookDelivery[]
   contactAnswers    ContactAnswer[]
+  aiReplies         AiReply[]
 
   @@index([workspaceId])
   @@index([instagramAccountId])
@@ -556,6 +566,40 @@ model ZernioConnection {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// One Anthropic API key per workspace, mirroring ZernioConnection: stored
+// encrypted with encryptToken, never returned to the browser once saved.
+model AiConnection {
+  workspaceId String   @id
+  apiKey      String
+  // A full Claude model id (e.g. claude-haiku-4-5-20251001). Defaulted in
+  // code (lib/ai/reply.ts), not here, so the default can change without a
+  // migration.
+  model       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// One row per AI-generated reply, for the per-contact cap and for the last
+// few turns of context (see lib/ai/reply.ts). Not a full transcript store —
+// only messages this feature itself sent.
+model AiReply {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  automationId    String
+  instagramUserId String
+  inboundText     String
+  replyText       String
+  createdAt       DateTime @default(now())
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([automationId, instagramUserId, createdAt])
 }
 
 // Claims persist independently of BullMQ retention so old taps never resend.

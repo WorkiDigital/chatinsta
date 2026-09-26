@@ -16,6 +16,7 @@ const {
   mockQueueAdd,
   mockReserveWorkspaceDMSend,
   mockReleaseWorkspaceDMReservation,
+  mockGenerateAiReply,
 } = vi.hoisted(() => ({
   mockPrisma: {
     zernioConnection: { findUnique: vi.fn() },
@@ -43,6 +44,11 @@ const {
       upsert: vi.fn(),
       update: vi.fn(),
     },
+    aiReply: {
+      count: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+    },
   },
   mockSendPrivateReply: vi.fn(),
   mockSendPrivateReplyWithLinkButton: vi.fn(),
@@ -58,6 +64,7 @@ const {
   mockQueueAdd: vi.fn(),
   mockReserveWorkspaceDMSend: vi.fn(),
   mockReleaseWorkspaceDMReservation: vi.fn(),
+  mockGenerateAiReply: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -110,6 +117,18 @@ vi.mock("@/lib/utils/rate-limiter", () => ({
 vi.mock("@/lib/billing/usage", () => ({
   reserveWorkspaceDMSend: mockReserveWorkspaceDMSend,
   releaseWorkspaceDMReservation: mockReleaseWorkspaceDMReservation,
+}));
+
+vi.mock("@/lib/ai/reply", () => ({
+  generateAiReply: mockGenerateAiReply,
+  AiReplyError: class AiReplyError extends Error {
+    retryable: boolean;
+    constructor(message: string, retryable: boolean) {
+      super(message);
+      this.name = "AiReplyError";
+      this.retryable = retryable;
+    }
+  },
 }));
 
 vi.mock("@/lib/ops/worker-health", () => ({
@@ -252,6 +271,10 @@ beforeEach(() => {
   mockPrisma.contactAnswer.findUnique.mockResolvedValue(null);
   mockPrisma.contactAnswer.upsert.mockResolvedValue({});
   mockPrisma.contactAnswer.update.mockResolvedValue({});
+  mockPrisma.aiReply.count.mockResolvedValue(0);
+  mockPrisma.aiReply.findMany.mockResolvedValue([]);
+  mockPrisma.aiReply.create.mockResolvedValue({});
+  mockGenerateAiReply.mockResolvedValue("Sure, here's the answer!");
   mockDecryptToken.mockReturnValue("decrypted_token");
   mockMatchKeywords.mockReturnValue({ matched: true, matchedKeyword: "LINK" });
   mockReserveWorkspaceDMSend.mockResolvedValue({
@@ -1154,6 +1177,126 @@ describe("DM Worker — DM keyword trigger", () => {
         create: expect.objectContaining({ status: "FAILED" }),
       })
     );
+  });
+});
+
+describe("DM Worker — AI reply fallback", () => {
+  const aiAutomation = {
+    ...mockAutomation,
+    aiReplyEnabled: true,
+    aiReplyInstructions: "You sell a $10 e-book about sourdough bread.",
+    aiReplyMaxPerContact: 5,
+    workspace: {
+      id: "workspace_123",
+      aiConnection: { apiKey: "encrypted_ai_key", model: null },
+    },
+  };
+
+  function createMockMessageJob(data: Record<string, unknown> = {}) {
+    return {
+      name: "process-message",
+      data: {
+        instagramAccountId: "ig_456",
+        messageId: "mid_abc",
+        messageText: "how much does it cost?",
+        senderId: "commenter_999",
+        ...data,
+      },
+      id: "message_job_001",
+      attemptsMade: 0,
+    };
+  }
+
+  beforeEach(() => {
+    // No campaign has dmTriggerEnabled keywords matching this message; the
+    // dm-trigger loop's own automation.findMany stays empty so nothing there
+    // fires, and the fallback automation.findFirst lookup is what AI uses.
+    mockPrisma.automation.findMany.mockResolvedValue([]);
+  });
+
+  it("does nothing when no campaign has AI replies enabled", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(null);
+    const processor = getProcessor();
+    await processor(createMockMessageJob());
+    expect(mockGenerateAiReply).not.toHaveBeenCalled();
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the workspace has no Anthropic key saved", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue({
+      ...aiAutomation,
+      workspace: { id: "workspace_123", aiConnection: null },
+    });
+    const processor = getProcessor();
+    await processor(createMockMessageJob());
+    expect(mockGenerateAiReply).not.toHaveBeenCalled();
+  });
+
+  it("generates and sends a reply, then logs it", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(aiAutomation);
+    const processor = getProcessor();
+    await processor(createMockMessageJob({ messageText: "how much does it cost?" }));
+
+    expect(mockGenerateAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "decrypted_token",
+        instructions: aiAutomation.aiReplyInstructions,
+        messageText: "how much does it cost?",
+      })
+    );
+    expect(mockSendDirectMessage).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "commenter_999",
+      "Sure, here's the answer!"
+    );
+    expect(mockPrisma.aiReply.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          automationId: "auto_789",
+          instagramUserId: "commenter_999",
+          replyText: "Sure, here's the answer!",
+        }),
+      })
+    );
+  });
+
+  it("stops once the contact has reached its reply cap", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(aiAutomation);
+    mockPrisma.aiReply.count.mockResolvedValue(5);
+    const processor = getProcessor();
+    await processor(createMockMessageJob());
+    expect(mockGenerateAiReply).not.toHaveBeenCalled();
+  });
+
+  it("skips when the account's DM rate limit is exhausted", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(aiAutomation);
+    mockReserveDMSlot.mockResolvedValue({ allowed: false });
+    const processor = getProcessor();
+    await processor(createMockMessageJob());
+    expect(mockGenerateAiReply).not.toHaveBeenCalled();
+  });
+
+  it("throws UnrecoverableError on a non-retryable AI failure, without retrying", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(aiAutomation);
+    const { AiReplyError } = await import("@/lib/ai/reply");
+    mockGenerateAiReply.mockRejectedValue(new AiReplyError("bad key", false));
+    const processor = getProcessor();
+    await expect(processor(createMockMessageJob())).rejects.toMatchObject({
+      name: "UnrecoverableError",
+    });
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockReleaseDMSlot).toHaveBeenCalled();
+  });
+
+  it("rethrows a retryable AI failure so BullMQ retries it", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(aiAutomation);
+    const { AiReplyError } = await import("@/lib/ai/reply");
+    mockGenerateAiReply.mockRejectedValue(new AiReplyError("timeout", true));
+    const processor = getProcessor();
+    await expect(processor(createMockMessageJob())).rejects.toMatchObject({
+      name: "AiReplyError",
+    });
   });
 });
 
