@@ -280,6 +280,9 @@ export interface LeadWebhookInput {
     text: string | null;
     matchedKeyword: string | null;
   };
+  // Set when a collect-data question gated this lead's link (see
+  // lib/collect-data.ts). Absent for campaigns without that step.
+  collectedAnswer?: Prisma.InputJsonValue;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -309,6 +312,7 @@ export async function enqueueLeadWebhook(input: LeadWebhookInput): Promise<void>
     },
     contact: input.contact,
     trigger: input.trigger,
+    ...(input.collectedAnswer ? { collectedAnswer: input.collectedAnswer } : {}),
   };
 
   let deliveryId: string;

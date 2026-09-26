@@ -488,5 +488,19 @@
   "No deliveries yet.": "Nenhum envio ainda.",
   "Delivered": "Entregue",
   "Lead Webhook Failures": "Falhas de webhook de leads",
-  "No failed lead webhooks.": "Nenhum webhook de lead com falha."
+  "No failed lead webhooks.": "Nenhum webhook de lead com falha.",
+  "Add a question to ask before sending the link.": "Adicione uma pergunta para fazer antes de enviar o link.",
+  "a question first, before the link": "uma pergunta antes, antes do link",
+  "Send me your email and I'll get the link right over!": "Me manda seu e-mail que eu já te envio o link!",
+  "Email": "E-mail",
+  "Phone": "Telefone",
+  "Any text": "Qualquer texto",
+  "That doesn't look right — mind trying again?": "Isso não parece certo — pode tentar de novo?",
+  "We keep asking (politely, up to 5 times) until the reply looks valid, then send the link right after.": "Continuamos perguntando (educadamente, até 5 vezes) até a resposta parecer válida, e enviamos o link logo em seguida.",
+  "No answers yet.": "Nenhuma resposta ainda.",
+  "Recent answers": "Respostas recentes",
+  "Answered": "Respondeu",
+  "Gave up": "Desistiu",
+  "They must answer a question first": "Eles devem responder uma pergunta primeiro",
+  "Question": "Pergunta"
 }

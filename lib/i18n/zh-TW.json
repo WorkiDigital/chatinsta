@@ -488,5 +488,19 @@
   "No deliveries yet.": "尚無傳送紀錄。",
   "Delivered": "已送達",
   "Lead Webhook Failures": "名單 Webhook 失敗",
-  "No failed lead webhooks.": "沒有失敗的名單 Webhook。"
+  "No failed lead webhooks.": "沒有失敗的名單 Webhook。",
+  "Add a question to ask before sending the link.": "請新增一個在傳送連結前要問的問題。",
+  "a question first, before the link": "先問一個問題，再傳送連結",
+  "Send me your email and I'll get the link right over!": "傳送你的電子郵件給我，我馬上把連結給你！",
+  "Email": "電子郵件",
+  "Phone": "電話",
+  "Any text": "任何文字",
+  "That doesn't look right — mind trying again?": "這看起來不太對，可以再試一次嗎？",
+  "We keep asking (politely, up to 5 times) until the reply looks valid, then send the link right after.": "我們會有禮貌地最多詢問 5 次，直到回覆看起來有效為止，然後立即傳送連結。",
+  "No answers yet.": "尚無回覆。",
+  "Recent answers": "最近的回覆",
+  "Answered": "已回覆",
+  "Gave up": "已放棄",
+  "They must answer a question first": "他們必須先回答一個問題",
+  "Question": "問題"
 }
