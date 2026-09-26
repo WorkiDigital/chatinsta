@@ -74,6 +74,7 @@ model Workspace {
   mcpOAuthGrants    McpOAuthGrant[]
   mcpApiKeys        McpApiKey[]
   webhookDeliveries WebhookDelivery[]
+  contactAnswers    ContactAnswer[]
 
   @@index([ownerId])
 }
@@ -227,58 +228,111 @@ model Automation {
   workspaceId        String
   instagramAccountId String
 
-  name                    String
-  goal                    String?
-  postId                  String?
-  postUrl                 String?
-  pendingNextReel         Boolean  @default(false)
-  matchAnyPost            Boolean  @default(false)
-  keywords                String[]
-  matchAnyWord            Boolean  @default(false)
+  name                      String
+  goal                      String?
+  postId                    String?
+  postUrl                   String?
+  pendingNextReel           Boolean              @default(false)
+  matchAnyPost              Boolean              @default(false)
+  keywords                  String[]
+  matchAnyWord              Boolean              @default(false)
   // Also fire this campaign when someone sends a DM whose text matches the
   // keywords above. Independent of the post trigger — a DM has no media, so
   // postId / matchAnyPost do not apply to it.
-  dmTriggerEnabled        Boolean  @default(false)
-  dmMessage               String
-  openingDmEnabled        Boolean  @default(false)
-  openingDmMessage        String?
-  openingDmButtonLabel    String?
-  linkButtonLabel         String?
-  requireFollow           Boolean  @default(false)
-  followPromptMessage     String?
-  followPromptButtonLabel String?
-  followUpEnabled         Boolean  @default(false)
-  followUpMessage         String?
+  dmTriggerEnabled          Boolean              @default(false)
+  dmMessage                 String
+  openingDmEnabled          Boolean              @default(false)
+  openingDmMessage          String?
+  openingDmButtonLabel      String?
+  linkButtonLabel           String?
+  requireFollow             Boolean              @default(false)
+  followPromptMessage       String?
+  followPromptButtonLabel   String?
+  followUpEnabled           Boolean              @default(false)
+  followUpMessage           String?
   // Minutes to wait after the link is delivered before sending the follow-up.
   // 0 sends it right away.
-  followUpDelayMinutes    Int      @default(0)
-  publicReplyEnabled      Boolean  @default(false)
-  publicReplyMessage      String?
-  publicReplyMessages     String[] @default([])
-  isActive                Boolean  @default(true)
-  wholeWordMatch          Boolean  @default(true)
-  reportShareSlug         String?  @unique
-  reportShareEnabled      Boolean  @default(true)
+  followUpDelayMinutes      Int                  @default(0)
+  publicReplyEnabled        Boolean              @default(false)
+  publicReplyMessage        String?
+  publicReplyMessages       String[]             @default([])
+  isActive                  Boolean              @default(true)
+  wholeWordMatch            Boolean              @default(true)
+  reportShareSlug           String?              @unique
+  reportShareEnabled        Boolean              @default(true)
   // Outbound lead webhook. A null URL means disabled. The secret signs every
   // delivery (HMAC-SHA256) and is stored encrypted with encryptToken; it is
   // generated server-side the first time a URL is set and kept across URL
   // changes so receivers don't have to re-verify on every edit.
-  webhookUrl              String?
-  webhookSecret           String?
+  webhookUrl                String?
+  webhookSecret             String?
+  // Ask a question in DM before releasing the link, and store the reply.
+  // Answers live in ContactAnswer, one row per (automation, Instagram user).
+  collectDataEnabled        Boolean              @default(false)
+  collectDataQuestion       String?
+  collectDataFieldType      CollectDataFieldType @default(TEXT)
+  collectDataInvalidMessage String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instagramAccount  InstagramAccount  @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
   dmLogs            DmLog[]
   trackedLinks      TrackedLink[]
   linkClicks        LinkClick[]
   webhookDeliveries WebhookDelivery[]
+  contactAnswers    ContactAnswer[]
 
   @@index([workspaceId])
   @@index([instagramAccountId])
   @@index([postId])
+}
+
+enum CollectDataFieldType {
+  EMAIL
+  PHONE
+  TEXT
+}
+
+// One row per (campaign, Instagram user): the "is this person mid-question"
+// memory the flow otherwise has no way to keep. A DM that matches no keyword
+// checks here FIRST, before keyword matching, so a typed answer isn't
+// dropped as an unrecognized message (see processMessage in dm-worker.ts).
+// The trigger* fields preserve what originally started the flow, since the
+// reply that answers the question rarely matches a keyword itself.
+model ContactAnswer {
+  id              String               @id @default(cuid())
+  workspaceId     String
+  automationId    String
+  instagramUserId String
+  commenterName   String?
+  status          ContactAnswerStatus  @default(PENDING)
+  question        String
+  answer          String?
+  fieldType       CollectDataFieldType
+  // Bumped on each invalid reply; capped (see lib/collect-data.ts) so a
+  // confused or hostile contact can't loop the worker forever.
+  attempts        Int                  @default(0)
+  triggerSource   String
+  triggerText     String?
+  matchedKeyword  String?
+  expiresAt       DateTime
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, instagramUserId])
+  @@index([workspaceId])
+  @@index([status, expiresAt])
+}
+
+enum ContactAnswerStatus {
+  PENDING
+  ANSWERED
+  EXPIRED
 }
 
 model DmLog {

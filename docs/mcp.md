@@ -104,6 +104,15 @@ the DM sequence:
   POST for each new lead (see [webhooks.md](webhooks.md)). Pass `""` or `null`
   on `update_flow` to stop. The signing secret is never returned over MCP;
   copy it from the campaign editor.
+- `collectDataEnabled`, `collectDataQuestion`, `collectDataFieldType`
+  (`EMAIL` | `PHONE` | `TEXT`, default `TEXT`), `collectDataInvalidMessage` —
+  ask a question in DM and hold the link until the reply validates for the
+  chosen field type (retried up to 5 times), instead of sending the link
+  right away. Sits after the opening DM / follow gate and before the link, so
+  it applies to every path that would otherwise reveal the link: a direct
+  comment reply, a button tap, or a DM keyword trigger. The collected answer
+  is attached to the `lead.link_delivered` webhook payload as
+  `collectedAnswer`.
 
 Setting any of the three `*Enabled`/`requireFollow` flags to `false` on
 `update_flow` clears that section's stored messages.
