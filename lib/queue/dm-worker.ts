@@ -56,6 +56,8 @@ import {
   startCollection,
   tryAnswerPendingQuestion,
 } from "@/lib/collect-data";
+import { AiReplyError, generateAiReply } from "@/lib/ai/reply";
+import { decryptToken } from "@/lib/meta/oauth";
 
 import {
   ZernioApiError,
@@ -1262,6 +1264,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   });
 
   const dedupeId = `dm:${messageId}`;
+  let anyKeywordMatched = false;
 
   // A pending collect-data question takes priority over keyword matching —
   // this reply might not contain any trigger keyword at all, and dropping it
@@ -1428,6 +1431,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         );
 
     if (!matchResult.matched) continue;
+    anyKeywordMatched = true;
 
     const existingLog = await prisma.dmLog.findUnique({
       where: {
@@ -1690,6 +1694,115 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       throw error;
     }
   }
+
+  // Nothing recognized this message: fall back to an AI reply if the
+  // workspace has one configured for this account. Never runs alongside a
+  // keyword match or a collect-data answer, both handled above.
+  if (!anyKeywordMatched) {
+    await tryAiReply(job, instagramAccountId, senderId, messageText);
+  }
+}
+
+/**
+ * Answer a DM that matched no campaign keyword and no pending collect-data
+ * question, using the first active AI-enabled campaign on this account.
+ * Best-effort: a missing key or an over-quota contact just means no reply,
+ * not a failure — only a genuine send/generation error propagates (and, for
+ * a non-retryable one like a bad API key, as UnrecoverableError so BullMQ
+ * doesn't burn three attempts on something that will never succeed).
+ */
+async function tryAiReply(
+  job: Job<ProcessMessageJob>,
+  instagramAccountId: string,
+  senderId: string,
+  messageText: string,
+): Promise<void> {
+  const automation = await prisma.automation.findFirst({
+    where: {
+      ...connectionScope(job.data),
+      aiReplyEnabled: true,
+      isActive: true,
+      instagramAccount: { instagramId: instagramAccountId },
+    },
+    include: {
+      instagramAccount: true,
+      workspace: { include: { aiConnection: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!automation?.aiReplyInstructions?.trim()) return;
+
+  const aiConnection = automation.workspace.aiConnection;
+  if (!aiConnection) return;
+
+  const replyCount = await prisma.aiReply.count({
+    where: { automationId: automation.id, instagramUserId: senderId },
+  });
+  if (replyCount >= automation.aiReplyMaxPerContact) return;
+
+  let accessToken: InstagramContext;
+  try {
+    accessToken = await createInstagramContext(
+      automation.instagramAccount,
+      `${job.id}:ai:${automation.id}`,
+    );
+  } catch {
+    return;
+  }
+
+  const rateLimit = await reserveDMSlot(instagramAccountId);
+  if (!rateLimit.allowed) {
+    console.log(
+      "[DM Worker] Skipping AI reply: account DM rate limit reached",
+    );
+    return;
+  }
+
+  const recentTurns = await prisma.aiReply.findMany({
+    where: { automationId: automation.id, instagramUserId: senderId },
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    select: { inboundText: true, replyText: true },
+  });
+
+  let replyText: string;
+  try {
+    replyText = await generateAiReply({
+      apiKey: decryptToken(aiConnection.apiKey),
+      model: aiConnection.model,
+      instructions: automation.aiReplyInstructions,
+      history: recentTurns.reverse(),
+      messageText,
+    });
+  } catch (error) {
+    await releaseDMSlot(instagramAccountId);
+    if (error instanceof AiReplyError && !error.retryable) {
+      throw new UnrecoverableError(error.message);
+    }
+    throw error;
+  }
+
+  try {
+    await sendDirectMessage({
+      context: accessToken,
+      instagramAccountId: automation.instagramAccount.instagramId,
+      userId: senderId,
+      message: replyText,
+    });
+  } catch (error) {
+    await releaseDMSlot(instagramAccountId);
+    throw error;
+  }
+
+  await prisma.aiReply.create({
+    data: {
+      workspaceId: automation.workspaceId,
+      automationId: automation.id,
+      instagramUserId: senderId,
+      inboundText: messageText,
+      replyText,
+    },
+  });
 }
 
 async function dispatchJob(job: Job<DmQueueJob>): Promise<void> {

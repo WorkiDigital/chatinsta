@@ -98,6 +98,9 @@ const createFlowSchema = z
     collectDataQuestion: z.string().trim().min(1).max(1000).optional(),
     collectDataFieldType: z.enum(["EMAIL", "PHONE", "TEXT"]).default("TEXT"),
     collectDataInvalidMessage: z.string().trim().min(1).max(1000).optional(),
+    aiReplyEnabled: z.boolean().default(false),
+    aiReplyInstructions: z.string().trim().min(1).max(4000).optional(),
+    aiReplyMaxPerContact: z.number().int().min(1).max(50).default(5),
     publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
     wholeWordMatch: z.boolean().default(true),
     isActive: z.boolean().default(false),
@@ -137,6 +140,13 @@ const createFlowSchema = z
         message: "Collecting data needs a question to ask",
       });
     }
+    if (data.aiReplyEnabled && !data.aiReplyInstructions) {
+      context.addIssue({
+        code: "custom",
+        path: ["aiReplyInstructions"],
+        message: "AI replies need instructions to follow",
+      });
+    }
   });
 
 const updateFlowSchema = z.object({
@@ -163,6 +173,9 @@ const updateFlowSchema = z.object({
   collectDataQuestion: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
   collectDataFieldType: z.enum(["EMAIL", "PHONE", "TEXT"]).optional(),
   collectDataInvalidMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
+  aiReplyEnabled: z.boolean().optional(),
+  aiReplyInstructions: z.union([z.string().trim().min(1).max(4000), z.null()]).optional(),
+  aiReplyMaxPerContact: z.number().int().min(1).max(50).optional(),
   publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).optional(),
   wholeWordMatch: z.boolean().optional(),
 });
@@ -273,6 +286,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
             followUpEnabled: true,
             webhookUrl: true,
             collectDataEnabled: true,
+            aiReplyEnabled: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -318,7 +332,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Set requireFollow with followPromptMessage and followPromptButtonLabel to gate the link behind a follow check. " +
         "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered. " +
         "Set webhookUrl (https only) to POST each new lead to your CRM/automation tool when they receive the link; the signing secret is managed in the dashboard. " +
-        "Set collectDataEnabled with collectDataQuestion (and collectDataFieldType: EMAIL/PHONE/TEXT) to ask a question in DM and hold the link until they answer validly; the answer rides along in the webhook payload.",
+        "Set collectDataEnabled with collectDataQuestion (and collectDataFieldType: EMAIL/PHONE/TEXT) to ask a question in DM and hold the link until they answer validly; the answer rides along in the webhook payload. " +
+        "Set aiReplyEnabled with aiReplyInstructions to have Claude answer DMs that match no keyword and no pending question, using the workspace's own Anthropic key (Settings). Capped by aiReplyMaxPerContact (default 5).",
       inputSchema: createFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       ...WRITE_TOOL_AUTH,
@@ -369,6 +384,9 @@ export function createInstaManyMcpServer(workspaceId: string) {
             collectDataInvalidMessage: input.collectDataEnabled
               ? input.collectDataInvalidMessage ?? null
               : null,
+            aiReplyEnabled: input.aiReplyEnabled,
+            aiReplyInstructions: input.aiReplyEnabled ? input.aiReplyInstructions ?? null : null,
+            aiReplyMaxPerContact: input.aiReplyMaxPerContact,
             publicReplyEnabled: publicReplyMessages.length > 0,
             publicReplyMessage: publicReplyMessages[0] ?? null,
             publicReplyMessages,
@@ -395,7 +413,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Setting openingDmEnabled, requireFollow, or followUpEnabled to false clears that section's messages. " +
         "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM. " +
         "Set webhookUrl to an https URL to send leads there, or to an empty string or null to stop. " +
-        "Setting collectDataEnabled to false clears its stored question.",
+        "Setting collectDataEnabled to false clears its stored question. Setting aiReplyEnabled to false clears its stored instructions.",
       inputSchema: updateFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       ...WRITE_TOOL_AUTH,
@@ -445,6 +463,13 @@ export function createInstaManyMcpServer(workspaceId: string) {
           throw new Error("Collecting data needs a question to ask");
         }
 
+        const nextAiReplyEnabled = changes.aiReplyEnabled ?? existing.aiReplyEnabled;
+        const nextAiReplyInstructions =
+          changes.aiReplyInstructions !== undefined ? changes.aiReplyInstructions : existing.aiReplyInstructions;
+        if (nextAiReplyEnabled && !nextAiReplyInstructions) {
+          throw new Error("AI replies need instructions to follow");
+        }
+
         const data: Prisma.AutomationUpdateInput = { ...changes };
         if (changes.webhookUrl === "") data.webhookUrl = null;
         if (changes.webhookUrl && !existing.hasWebhookSecret) {
@@ -466,6 +491,9 @@ export function createInstaManyMcpServer(workspaceId: string) {
         if (changes.collectDataEnabled === false) {
           data.collectDataQuestion = null;
           data.collectDataInvalidMessage = null;
+        }
+        if (changes.aiReplyEnabled === false) {
+          data.aiReplyInstructions = null;
         }
         if (publicReplyMessages !== undefined) {
           data.publicReplyMessages = publicReplyMessages;

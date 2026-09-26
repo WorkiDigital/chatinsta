@@ -113,6 +113,11 @@ the DM sequence:
   comment reply, a button tap, or a DM keyword trigger. The collected answer
   is attached to the `lead.link_delivered` webhook payload as
   `collectedAnswer`.
+- `aiReplyEnabled`, `aiReplyInstructions`, `aiReplyMaxPerContact` (default 5)
+  — have Claude answer a DM that matches no keyword and has no pending
+  collect-data question, using `aiReplyInstructions` as its brief and the
+  workspace's own Anthropic key (set in Settings — the MCP never handles
+  that key). Capped per contact by `aiReplyMaxPerContact`.
 
 Setting any of the three `*Enabled`/`requireFollow` flags to `false` on
 `update_flow` clears that section's stored messages.

@@ -92,6 +92,9 @@ const createAutomationSchema = z
     collectDataQuestion: z.string().max(1000).optional().nullable(),
     collectDataFieldType: collectDataFieldTypeSchema.optional().default("TEXT"),
     collectDataInvalidMessage: z.string().max(1000).optional().nullable(),
+    aiReplyEnabled: z.boolean().optional().default(false),
+    aiReplyInstructions: z.string().max(4000).optional().nullable(),
+    aiReplyMaxPerContact: z.number().int().min(1).max(50).optional().default(5),
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
   })
@@ -117,6 +120,10 @@ const createAutomationSchema = z
   .refine(
     (d) => !d.collectDataEnabled || Boolean(d.collectDataQuestion?.trim()),
     { message: "Collecting data needs a question to ask", path: ["collectDataQuestion"] }
+  )
+  .refine(
+    (d) => !d.aiReplyEnabled || Boolean(d.aiReplyInstructions?.trim()),
+    { message: "AI replies need instructions to follow", path: ["aiReplyInstructions"] }
   );
 
 const updateAutomationSchema = z.object({
@@ -163,6 +170,9 @@ const updateAutomationSchema = z.object({
   collectDataQuestion: z.string().max(1000).optional().nullable(),
   collectDataFieldType: collectDataFieldTypeSchema.optional(),
   collectDataInvalidMessage: z.string().max(1000).optional().nullable(),
+  aiReplyEnabled: z.boolean().optional(),
+  aiReplyInstructions: z.string().max(4000).optional().nullable(),
+  aiReplyMaxPerContact: z.number().int().min(1).max(50).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -462,6 +472,11 @@ export async function POST(request: NextRequest) {
       collectDataInvalidMessage: parsed.data.collectDataEnabled
         ? parsed.data.collectDataInvalidMessage
         : null,
+      aiReplyEnabled: parsed.data.aiReplyEnabled,
+      aiReplyInstructions: parsed.data.aiReplyEnabled
+        ? parsed.data.aiReplyInstructions
+        : null,
+      aiReplyMaxPerContact: parsed.data.aiReplyMaxPerContact,
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -556,6 +571,9 @@ export async function PATCH(request: NextRequest) {
   if (automationData.collectDataEnabled === false) {
     automationData.collectDataQuestion = null;
     automationData.collectDataInvalidMessage = null;
+  }
+  if (automationData.aiReplyEnabled === false) {
+    automationData.aiReplyInstructions = null;
   }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {

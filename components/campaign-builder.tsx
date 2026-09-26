@@ -61,6 +61,9 @@ interface LoadedCampaign {
   collectDataQuestion?: string | null;
   collectDataFieldType?: "EMAIL" | "PHONE" | "TEXT";
   collectDataInvalidMessage?: string | null;
+  aiReplyEnabled?: boolean;
+  aiReplyInstructions?: string | null;
+  aiReplyMaxPerContact?: number;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
@@ -199,6 +202,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [collectDataFieldType, setCollectDataFieldType] =
     useState<"EMAIL" | "PHONE" | "TEXT">("TEXT");
   const [collectDataInvalidMessage, setCollectDataInvalidMessage] = useState("");
+  const [aiReplyEnabled, setAiReplyEnabled] = useState(false);
+  const [aiReplyInstructions, setAiReplyInstructions] = useState("");
+  const [aiReplyMaxPerContact, setAiReplyMaxPerContact] = useState(5);
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -314,6 +320,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setCollectDataQuestion(c.collectDataQuestion ?? "");
         setCollectDataFieldType(c.collectDataFieldType ?? "TEXT");
         setCollectDataInvalidMessage(c.collectDataInvalidMessage ?? "");
+        setAiReplyEnabled(c.aiReplyEnabled ?? false);
+        setAiReplyInstructions(c.aiReplyInstructions ?? "");
+        setAiReplyMaxPerContact(c.aiReplyMaxPerContact ?? 5);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -424,6 +433,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       return setError(t("Add an https:// URL to send your leads to."));
     if (collectDataEnabled && !collectDataQuestion.trim())
       return setError(t("Add a question to ask before sending the link."));
+    if (aiReplyEnabled && !aiReplyInstructions.trim())
+      return setError(t("Add instructions for the AI to follow."));
 
     setSaving(true);
 
@@ -464,6 +475,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       collectDataInvalidMessage: collectDataEnabled
         ? collectDataInvalidMessage.trim()
         : "",
+      aiReplyEnabled,
+      aiReplyInstructions: aiReplyEnabled ? aiReplyInstructions.trim() : "",
+      aiReplyMaxPerContact,
       isActive: activeValue,
     };
 
@@ -1094,6 +1108,53 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                     {t("Save the campaign to get the signing secret and send a test.")}
                   </p>
                 )}
+              </div>
+            )}
+          </div>
+        </Section>
+
+        <Section title={t("And answer questions with")}>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                {t("AI, when nothing else matches")}
+              </span>
+              <Toggle
+                on={aiReplyEnabled}
+                onToggle={() => setAiReplyEnabled(!aiReplyEnabled)}
+              />
+            </div>
+            {aiReplyEnabled && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={aiReplyInstructions}
+                  onChange={(e) => setAiReplyInstructions(e.target.value)}
+                  placeholder={t("You sell a $19 sourdough baking course. Be warm and helpful. If you don't know something, say so instead of guessing.")}
+                  rows={4}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  maxLength={4000}
+                />
+                <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+                  <span className="text-xs text-muted">{t("Up to")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={aiReplyMaxPerContact}
+                    onChange={(e) =>
+                      setAiReplyMaxPerContact(
+                        Math.max(1, Math.min(50, Math.floor(Number(e.target.value) || 1)))
+                      )
+                    }
+                    className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+                  />
+                  <span className="text-xs text-muted">
+                    {t("AI replies per person")}
+                  </span>
+                </div>
+                <p className="text-xs text-muted">
+                  {t("Replies to a DM that matches no keyword and no pending question. Uses the Anthropic key from Settings — configure it there first.")}
+                </p>
               </div>
             )}
           </div>
