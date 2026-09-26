@@ -50,6 +50,12 @@ import {
   enqueueLeadWebhook,
   processWebhookDelivery,
 } from "@/lib/webhooks/outbound";
+import {
+  contactAnswerToWebhookField,
+  needsCollection,
+  startCollection,
+  tryAnswerPendingQuestion,
+} from "@/lib/collect-data";
 
 import {
   ZernioApiError,
@@ -57,6 +63,8 @@ import {
 } from "@/lib/zernio/client";
 
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
+const DEFAULT_COLLECT_DATA_QUESTION =
+  "Before I send it over, mind sharing your email so I can follow up?";
 // Webhook receivers usually recover in seconds, not the hour-scale windows
 // Instagram rate limits need, so they get a much shorter schedule.
 const WEBHOOK_BACKOFF_DELAYS = [30 * 1000, 2 * 60 * 1000, 10 * 60 * 1000];
@@ -612,6 +620,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // status at comment time: confirmed followers get the link now, everyone
     // else gets the "follow me first" prompt (re-verified on tap).
     let sendFollowPrompt = false;
+    let askedForData = false;
     if (automation.requireFollow && !useOpeningDm) {
       const alreadyFollows = await getUserFollowStatus({
         context: accessToken,
@@ -656,6 +665,32 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           buttonTitle: automation.followPromptButtonLabel || "i'm following",
           payload: `followcheck:${automation.id}`,
           postId: mediaId,
+        });
+      } else if (await needsCollection(automation, commenterId)) {
+        askedForData = true;
+        const question = renderMessageWithoutLink({
+          message: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+          commenterName,
+        });
+        await sendPrivateReply({
+          context: accessToken,
+          instagramAccountId: automation.instagramAccount.instagramId,
+          commentId: commentId,
+          message: question,
+          postId: mediaId,
+        });
+        await startCollection({
+          workspaceId: automation.workspaceId,
+          automationId: automation.id,
+          instagramUserId: commenterId,
+          commenterName: commenterName ?? null,
+          question: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+          fieldType: automation.collectDataFieldType,
+          trigger: {
+            source: "comment",
+            text: commentText,
+            matchedKeyword: matchResult.matchedKeyword,
+          },
         });
       } else if (automation.trackedLinks.length > 0) {
         // Try button template first; if Meta rejects it, fall back to inline links.
@@ -738,9 +773,10 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         },
       });
 
-      // Only the direct link DM counts as a delivered lead here; an opening DM
-      // or follow prompt fires the webhook later, from the button tap.
-      if (!useOpeningDm && !sendFollowPrompt) {
+      // Only the direct link DM counts as a delivered lead here; an opening DM,
+      // follow prompt or collect-data question fires the webhook later — from
+      // the button tap, or once the question is answered (processMessage).
+      if (!useOpeningDm && !sendFollowPrompt && !askedForData) {
         await enqueueLeadWebhook({
           automation,
           contact: { instagramUserId: commenterId, username: commenterName ?? null },
@@ -979,6 +1015,47 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
+  if (await needsCollection(automation, userId)) {
+    try {
+      await sendPostbackOnce({
+        operationId,
+        send: () =>
+          sendDirectMessage({
+            context: accessToken,
+            instagramAccountId: automation.instagramAccount.instagramId,
+            userId,
+            message: renderMessageWithoutLink({
+              message: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+              commenterName,
+            }),
+          }),
+      });
+      await startCollection({
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        instagramUserId: userId,
+        commenterName,
+        question: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+        fieldType: automation.collectDataFieldType,
+        trigger: {
+          source: "button",
+          text: openingLog?.commentText ?? null,
+          matchedKeyword: openingLog?.matchedKeyword ?? null,
+        },
+      });
+    } catch (error) {
+      await releaseWorkspaceDMReservation(
+        automation.workspaceId,
+        usage.periodStart,
+      );
+      console.log(
+        "[DM Worker] Failed to send collect-data question:",
+        formatError(error),
+      );
+    }
+    return;
+  }
+
   try {
     const delivered = await sendPostbackOnce({
       operationId,
@@ -1186,6 +1263,161 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
 
   const dedupeId = `dm:${messageId}`;
 
+  // A pending collect-data question takes priority over keyword matching —
+  // this reply might not contain any trigger keyword at all, and dropping it
+  // as unrecognized would silently break the flow it's answering. See
+  // lib/collect-data.ts.
+  const pendingOutcome = await tryAnswerPendingQuestion(
+    instagramAccountId,
+    senderId,
+    messageText,
+  );
+  if (pendingOutcome.kind !== "not_pending") {
+    const { contactAnswer } = pendingOutcome;
+    const answerAutomation = contactAnswer.automation;
+    let accessToken: InstagramContext;
+    try {
+      accessToken = await createInstagramContext(
+        answerAutomation.instagramAccount,
+        `${job.id}:${answerAutomation.id}`,
+      );
+    } catch {
+      return;
+    }
+
+    if (pendingOutcome.kind === "invalid" || pendingOutcome.kind === "gave_up") {
+      const message =
+        pendingOutcome.kind === "invalid"
+          ? pendingOutcome.message
+          : "No worries — comment again whenever you'd like the link and I'll ask again.";
+      await sendDirectMessage({
+        context: accessToken,
+        instagramAccountId: answerAutomation.instagramAccount.instagramId,
+        userId: senderId,
+        message,
+      }).catch((error) =>
+        console.log(
+          "[DM Worker] Failed to reply to collect-data answer:",
+          formatError(error),
+        ),
+      );
+      return;
+    }
+
+    // "answered": release the link this question was gating.
+    const commenterName = contactAnswer.commenterName;
+    const collectDedupeId = `collect:${answerAutomation.id}:${senderId}`;
+    const existingCollectLog = await prisma.dmLog.findUnique({
+      where: {
+        automationId_commentId: {
+          automationId: answerAutomation.id,
+          commentId: collectDedupeId,
+        },
+      },
+    });
+    if (existingCollectLog?.status === "SENT") return; // already delivered
+
+    const usage = await reserveWorkspaceDMSend(answerAutomation.workspaceId);
+    if (!usage.allowed) {
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: {
+            automationId: answerAutomation.id,
+            commentId: collectDedupeId,
+          },
+        },
+        create: {
+          workspaceId: answerAutomation.workspaceId,
+          automationId: answerAutomation.id,
+          instagramAccountId: answerAutomation.instagramAccountId,
+          commenterId: senderId,
+          commenterName,
+          commentText: contactAnswer.triggerText ?? messageText,
+          commentId: collectDedupeId,
+          matchedKeyword: contactAnswer.matchedKeyword,
+          status: "SKIPPED_PLAN_LIMIT",
+          errorMessage: `Monthly DM limit reached (${usage.limit})`,
+        },
+        update: { status: "SKIPPED_PLAN_LIMIT" },
+      });
+      return;
+    }
+
+    try {
+      await sendRevealDirectMessage({
+        accessToken,
+        automation: answerAutomation,
+        userId: senderId,
+        commenterName,
+        context: "collect-data answered",
+      });
+
+      if (
+        answerAutomation.followUpEnabled &&
+        answerAutomation.followUpMessage?.trim()
+      ) {
+        await getDMQueue().add(
+          FOLLOWUP_JOB_NAME,
+          {
+            instagramAccountId: answerAutomation.instagramAccount.instagramId,
+            accountConnectionId: answerAutomation.instagramAccountId,
+            userId: senderId,
+            automationId: answerAutomation.id,
+            commenterName,
+          },
+          {
+            delay:
+              Math.max(0, answerAutomation.followUpDelayMinutes ?? 0) * 60_000,
+            jobId: `followup_${answerAutomation.id}_${senderId}`,
+          },
+        );
+      }
+
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: {
+            automationId: answerAutomation.id,
+            commentId: collectDedupeId,
+          },
+        },
+        create: {
+          workspaceId: answerAutomation.workspaceId,
+          automationId: answerAutomation.id,
+          instagramAccountId: answerAutomation.instagramAccountId,
+          commenterId: senderId,
+          commenterName,
+          commentText: contactAnswer.triggerText ?? messageText,
+          commentId: collectDedupeId,
+          matchedKeyword: contactAnswer.matchedKeyword,
+          status: "SENT",
+          dmSentAt: new Date(),
+        },
+        update: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+      });
+
+      await enqueueLeadWebhook({
+        automation: answerAutomation,
+        contact: { instagramUserId: senderId, username: commenterName },
+        trigger: {
+          source: contactAnswer.triggerSource as "comment" | "button" | "dm",
+          text: pendingOutcome.contactAnswer.triggerText,
+          matchedKeyword: contactAnswer.matchedKeyword,
+        },
+        collectedAnswer: contactAnswerToWebhookField(contactAnswer),
+      });
+    } catch (error) {
+      await releaseWorkspaceDMReservation(
+        answerAutomation.workspaceId,
+        usage.periodStart,
+      );
+      console.log(
+        "[DM Worker] Failed to deliver link after a collected answer:",
+        formatError(error),
+      );
+    }
+    return;
+  }
+
   for (const automation of automations) {
     const matchResult = automation.matchAnyWord
       ? { matched: true, matchedKeyword: null }
@@ -1323,6 +1555,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       continue;
     }
 
+    let askedForData = false;
     try {
       if (sendFollowPrompt) {
         const promptText = renderMessageWithoutLink({
@@ -1339,6 +1572,30 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           buttonTitle: automation.followPromptButtonLabel || "I'm following ✅",
           payload: `followcheck:${automation.id}`,
         });
+      } else if (await needsCollection(automation, senderId)) {
+        askedForData = true;
+        await sendDirectMessage({
+          context: accessToken,
+          instagramAccountId: automation.instagramAccount.instagramId,
+          userId: senderId,
+          message: renderMessageWithoutLink({
+            message: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+            commenterName,
+          }),
+        });
+        await startCollection({
+          workspaceId: automation.workspaceId,
+          automationId: automation.id,
+          instagramUserId: senderId,
+          commenterName,
+          question: automation.collectDataQuestion || DEFAULT_COLLECT_DATA_QUESTION,
+          fieldType: automation.collectDataFieldType,
+          trigger: {
+            source: "dm",
+            text: messageText,
+            matchedKeyword: matchResult.matchedKeyword,
+          },
+        });
       } else {
         await sendRevealDirectMessage({
           accessToken: accessToken,
@@ -1350,7 +1607,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
 
         // The link has been delivered, so the appreciation follow-up applies
         // here exactly as it does after a button tap. Not scheduled behind the
-        // follow prompt — no link went out yet in that branch.
+        // follow prompt (or a collect-data question) — no link went out there.
         if (automation.followUpEnabled && automation.followUpMessage?.trim()) {
           await getDMQueue().add(
             FOLLOWUP_JOB_NAME,
@@ -1389,9 +1646,10 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         },
       });
 
-      // Behind the follow prompt no link went out yet — the webhook fires on
-      // the button tap instead (processPostback).
-      if (!sendFollowPrompt) {
+      // Behind the follow prompt or a collect-data question no link went out
+      // yet — the webhook fires later, from the button tap or once the
+      // question is answered (top of this function).
+      if (!sendFollowPrompt && !askedForData) {
         await enqueueLeadWebhook({
           automation,
           contact: { instagramUserId: senderId, username: commenterName },

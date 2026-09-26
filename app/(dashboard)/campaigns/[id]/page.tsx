@@ -35,6 +35,8 @@ interface Campaign {
   followUpEnabled: boolean;
   followUpMessage: string | null;
   followUpDelayMinutes: number | null;
+  collectDataEnabled: boolean;
+  collectDataQuestion: string | null;
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
@@ -246,6 +248,12 @@ export default function CampaignDetailPage() {
             <FieldBox>
               {campaign.followPromptButtonLabel || "i'm following"}
             </FieldBox>
+          </Summary>
+        )}
+
+        {campaign.collectDataEnabled && (
+          <Summary title={t("They must answer a question first")}>
+            <FieldBox>{campaign.collectDataQuestion || t("Question")}</FieldBox>
           </Summary>
         )}
 

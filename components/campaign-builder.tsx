@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import WebhookSettings from "@/components/webhook-settings";
+import CollectedAnswers from "@/components/collected-answers";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { readCache, writeCache } from "@/lib/client-cache";
 import {
@@ -56,6 +57,10 @@ interface LoadedCampaign {
   isActive: boolean;
   instagramAccountId: string;
   webhookUrl?: string | null;
+  collectDataEnabled?: boolean;
+  collectDataQuestion?: string | null;
+  collectDataFieldType?: "EMAIL" | "PHONE" | "TEXT";
+  collectDataInvalidMessage?: string | null;
   trackedLinks?: { destinationUrl: string; label?: string | null }[];
 }
 
@@ -189,6 +194,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   // The URL as last saved: the secret/test panel only makes sense for a URL
   // the server already has, not one still being typed.
   const [savedWebhookUrl, setSavedWebhookUrl] = useState("");
+  const [collectDataEnabled, setCollectDataEnabled] = useState(false);
+  const [collectDataQuestion, setCollectDataQuestion] = useState("");
+  const [collectDataFieldType, setCollectDataFieldType] =
+    useState<"EMAIL" | "PHONE" | "TEXT">("TEXT");
+  const [collectDataInvalidMessage, setCollectDataInvalidMessage] = useState("");
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -300,6 +310,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setWebhookEnabled(Boolean(c.webhookUrl));
         setWebhookUrl(c.webhookUrl ?? "");
         setSavedWebhookUrl(c.webhookUrl ?? "");
+        setCollectDataEnabled(c.collectDataEnabled ?? false);
+        setCollectDataQuestion(c.collectDataQuestion ?? "");
+        setCollectDataFieldType(c.collectDataFieldType ?? "TEXT");
+        setCollectDataInvalidMessage(c.collectDataInvalidMessage ?? "");
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -408,6 +422,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       return setError(t("Your opening DM needs a message and a button label."));
     if (webhookEnabled && !/^https:\/\/\S+$/i.test(webhookUrl.trim()))
       return setError(t("Add an https:// URL to send your leads to."));
+    if (collectDataEnabled && !collectDataQuestion.trim())
+      return setError(t("Add a question to ask before sending the link."));
 
     setSaving(true);
 
@@ -442,6 +458,12 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       followUpMessage: followUpEnabled ? followUpMessage.trim() : "",
       followUpDelayMinutes: followUpEnabled ? followUpDelayMinutes : 0,
       webhookUrl: webhookEnabled ? webhookUrl.trim() : "",
+      collectDataEnabled,
+      collectDataQuestion: collectDataEnabled ? collectDataQuestion.trim() : "",
+      collectDataFieldType,
+      collectDataInvalidMessage: collectDataEnabled
+        ? collectDataInvalidMessage.trim()
+        : "",
       isActive: activeValue,
     };
 
@@ -871,6 +893,56 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 <p className="text-xs text-muted">
                   {t("We send the link only after they tap the button and Instagram confirms the follow. If it can't be verified, we send it anyway.")}
                 </p>
+              </div>
+            )}
+          </div>
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                {t("a question first, before the link")}
+              </span>
+              <Toggle
+                on={collectDataEnabled}
+                onToggle={() => setCollectDataEnabled(!collectDataEnabled)}
+              />
+            </div>
+            {collectDataEnabled && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={collectDataQuestion}
+                  onChange={(e) => setCollectDataQuestion(e.target.value)}
+                  placeholder={t("Send me your email and I'll get the link right over!")}
+                  rows={2}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                  maxLength={1000}
+                />
+                <div className="flex gap-2">
+                  {(["EMAIL", "PHONE", "TEXT"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setCollectDataFieldType(type)}
+                      className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        collectDataFieldType === type
+                          ? "border-accent bg-accent/5 text-accent"
+                          : "border-border text-muted hover:border-border-hover"
+                      }`}
+                    >
+                      {type === "EMAIL" ? t("Email") : type === "PHONE" ? t("Phone") : t("Any text")}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  value={collectDataInvalidMessage}
+                  onChange={(e) => setCollectDataInvalidMessage(e.target.value)}
+                  placeholder={t("That doesn't look right — mind trying again?")}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                  maxLength={1000}
+                />
+                <p className="text-xs text-muted">
+                  {t("We keep asking (politely, up to 5 times) until the reply looks valid, then send the link right after.")}
+                </p>
+                {mode === "edit" && campaignId && <CollectedAnswers campaignId={campaignId} />}
               </div>
             )}
           </div>

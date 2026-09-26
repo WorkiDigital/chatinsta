@@ -20,6 +20,9 @@ import {
   omitWebhookSecret,
   validateWebhookUrl,
 } from "@/lib/webhooks/outbound";
+import type { CollectDataFieldType } from "@/app/generated/prisma/client";
+
+const collectDataFieldTypeSchema = z.enum(["EMAIL", "PHONE", "TEXT"]);
 
 // Empty string (or null) disables the lead webhook; otherwise it must pass the
 // same https/SSRF checks the sender enforces.
@@ -85,6 +88,10 @@ const createAutomationSchema = z
       .nullable(),
     secondaryButtonLabel: z.string().max(20).optional().nullable(),
     webhookUrl: webhookUrlSchema,
+    collectDataEnabled: z.boolean().optional().default(false),
+    collectDataQuestion: z.string().max(1000).optional().nullable(),
+    collectDataFieldType: collectDataFieldTypeSchema.optional().default("TEXT"),
+    collectDataInvalidMessage: z.string().max(1000).optional().nullable(),
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
   })
@@ -105,6 +112,11 @@ const createAutomationSchema = z
       (Boolean(d.openingDmMessage?.trim()) &&
         Boolean(d.openingDmButtonLabel?.trim())),
     { message: "Opening DM needs a message and a button label", path: ["openingDmMessage"] }
+  )
+  // Collecting data needs a question to actually ask.
+  .refine(
+    (d) => !d.collectDataEnabled || Boolean(d.collectDataQuestion?.trim()),
+    { message: "Collecting data needs a question to ask", path: ["collectDataQuestion"] }
   );
 
 const updateAutomationSchema = z.object({
@@ -147,6 +159,10 @@ const updateAutomationSchema = z.object({
     .nullable(),
   secondaryButtonLabel: z.string().max(20).optional().nullable(),
   webhookUrl: webhookUrlSchema,
+  collectDataEnabled: z.boolean().optional(),
+  collectDataQuestion: z.string().max(1000).optional().nullable(),
+  collectDataFieldType: collectDataFieldTypeSchema.optional(),
+  collectDataInvalidMessage: z.string().max(1000).optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -438,6 +454,14 @@ export async function POST(request: NextRequest) {
       webhookSecret: parsed.data.webhookUrl
         ? encryptToken(generateWebhookSecret())
         : null,
+      collectDataEnabled: parsed.data.collectDataEnabled,
+      collectDataQuestion: parsed.data.collectDataEnabled
+        ? parsed.data.collectDataQuestion
+        : null,
+      collectDataFieldType: parsed.data.collectDataFieldType as CollectDataFieldType,
+      collectDataInvalidMessage: parsed.data.collectDataEnabled
+        ? parsed.data.collectDataInvalidMessage
+        : null,
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -528,6 +552,10 @@ export async function PATCH(request: NextRequest) {
   if (automationData.followUpEnabled === false) {
     automationData.followUpMessage = null;
     automationData.followUpDelayMinutes = 0;
+  }
+  if (automationData.collectDataEnabled === false) {
+    automationData.collectDataQuestion = null;
+    automationData.collectDataInvalidMessage = null;
   }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {

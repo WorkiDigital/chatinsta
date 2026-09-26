@@ -94,6 +94,10 @@ const createFlowSchema = z
     followUpMessage: z.string().trim().min(1).max(1000).optional(),
     followUpDelayMinutes: z.number().int().min(0).max(1440).default(0),
     webhookUrl: webhookUrlField.optional(),
+    collectDataEnabled: z.boolean().default(false),
+    collectDataQuestion: z.string().trim().min(1).max(1000).optional(),
+    collectDataFieldType: z.enum(["EMAIL", "PHONE", "TEXT"]).default("TEXT"),
+    collectDataInvalidMessage: z.string().trim().min(1).max(1000).optional(),
     publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
     wholeWordMatch: z.boolean().default(true),
     isActive: z.boolean().default(false),
@@ -126,6 +130,13 @@ const createFlowSchema = z
         message: "The follow-up needs a message",
       });
     }
+    if (data.collectDataEnabled && !data.collectDataQuestion) {
+      context.addIssue({
+        code: "custom",
+        path: ["collectDataQuestion"],
+        message: "Collecting data needs a question to ask",
+      });
+    }
   });
 
 const updateFlowSchema = z.object({
@@ -148,6 +159,10 @@ const updateFlowSchema = z.object({
   followUpMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
   followUpDelayMinutes: z.number().int().min(0).max(1440).optional(),
   webhookUrl: z.union([webhookUrlField, z.literal(""), z.null()]).optional(),
+  collectDataEnabled: z.boolean().optional(),
+  collectDataQuestion: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
+  collectDataFieldType: z.enum(["EMAIL", "PHONE", "TEXT"]).optional(),
+  collectDataInvalidMessage: z.union([z.string().trim().min(1).max(1000), z.null()]).optional(),
   publicReplyMessages: z.array(z.string().trim().min(1).max(1000)).max(10).optional(),
   wholeWordMatch: z.boolean().optional(),
 });
@@ -257,6 +272,7 @@ export function createInstaManyMcpServer(workspaceId: string) {
             requireFollow: true,
             followUpEnabled: true,
             webhookUrl: true,
+            collectDataEnabled: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -301,7 +317,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Set openingDmEnabled with openingDmMessage and openingDmButtonLabel to send an opening DM whose link renders as a button instead of plain text. " +
         "Set requireFollow with followPromptMessage and followPromptButtonLabel to gate the link behind a follow check. " +
         "Set followUpEnabled with followUpMessage and followUpDelayMinutes (minutes to wait, 0-1440) to send a follow-up DM after the link is delivered. " +
-        "Set webhookUrl (https only) to POST each new lead to your CRM/automation tool when they receive the link; the signing secret is managed in the dashboard.",
+        "Set webhookUrl (https only) to POST each new lead to your CRM/automation tool when they receive the link; the signing secret is managed in the dashboard. " +
+        "Set collectDataEnabled with collectDataQuestion (and collectDataFieldType: EMAIL/PHONE/TEXT) to ask a question in DM and hold the link until they answer validly; the answer rides along in the webhook payload.",
       inputSchema: createFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       ...WRITE_TOOL_AUTH,
@@ -346,6 +363,12 @@ export function createInstaManyMcpServer(workspaceId: string) {
             followUpDelayMinutes: input.followUpEnabled ? input.followUpDelayMinutes : 0,
             webhookUrl: input.webhookUrl || null,
             webhookSecret: input.webhookUrl ? encryptToken(generateWebhookSecret()) : null,
+            collectDataEnabled: input.collectDataEnabled,
+            collectDataQuestion: input.collectDataEnabled ? input.collectDataQuestion ?? null : null,
+            collectDataFieldType: input.collectDataFieldType,
+            collectDataInvalidMessage: input.collectDataEnabled
+              ? input.collectDataInvalidMessage ?? null
+              : null,
             publicReplyEnabled: publicReplyMessages.length > 0,
             publicReplyMessage: publicReplyMessages[0] ?? null,
             publicReplyMessages,
@@ -371,7 +394,8 @@ export function createInstaManyMcpServer(workspaceId: string) {
         "Update the editable message and matching settings of an existing flow. Use an empty trackedDestinationUrl to remove its primary link. " +
         "Setting openingDmEnabled, requireFollow, or followUpEnabled to false clears that section's messages. " +
         "openingDmEnabled needs openingDmMessage and openingDmButtonLabel to actually send an opening DM. " +
-        "Set webhookUrl to an https URL to send leads there, or to an empty string or null to stop.",
+        "Set webhookUrl to an https URL to send leads there, or to an empty string or null to stop. " +
+        "Setting collectDataEnabled to false clears its stored question.",
       inputSchema: updateFlowSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       ...WRITE_TOOL_AUTH,
@@ -414,6 +438,13 @@ export function createInstaManyMcpServer(workspaceId: string) {
           throw new Error("The follow-up needs a message");
         }
 
+        const nextCollectDataEnabled = changes.collectDataEnabled ?? existing.collectDataEnabled;
+        const nextCollectDataQuestion =
+          changes.collectDataQuestion !== undefined ? changes.collectDataQuestion : existing.collectDataQuestion;
+        if (nextCollectDataEnabled && !nextCollectDataQuestion) {
+          throw new Error("Collecting data needs a question to ask");
+        }
+
         const data: Prisma.AutomationUpdateInput = { ...changes };
         if (changes.webhookUrl === "") data.webhookUrl = null;
         if (changes.webhookUrl && !existing.hasWebhookSecret) {
@@ -431,6 +462,10 @@ export function createInstaManyMcpServer(workspaceId: string) {
         if (changes.followUpEnabled === false) {
           data.followUpMessage = null;
           data.followUpDelayMinutes = 0;
+        }
+        if (changes.collectDataEnabled === false) {
+          data.collectDataQuestion = null;
+          data.collectDataInvalidMessage = null;
         }
         if (publicReplyMessages !== undefined) {
           data.publicReplyMessages = publicReplyMessages;

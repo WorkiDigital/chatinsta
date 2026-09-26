@@ -39,12 +39,16 @@ Body:
   "campaign": { "id": "cm0…", "name": "Free guide" },
   "instagramAccount": { "id": "17841…", "username": "yourbrand" },
   "contact": { "instagramUserId": "9876…", "username": "ana" },
-  "trigger": { "source": "comment", "text": "GUIDE please", "matchedKeyword": "guide" }
+  "trigger": { "source": "comment", "text": "GUIDE please", "matchedKeyword": "guide" },
+"collectedAnswer": { "question": "What's your email?", "answer": "ana@example.com", "fieldType": "EMAIL" }
 }
 ```
 
 `trigger.source` is `comment`, `button` or `dm`. `contact.username` can be
 `null`, because Instagram only sends the username on comment events.
+`collectedAnswer` is present only when the campaign's **a question first,
+before the link** step is on — it holds whatever the person typed in reply,
+validated against the field type you chose (`EMAIL`, `PHONE` or `TEXT`).
 
 ## Verifying the signature
 

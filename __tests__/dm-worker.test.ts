@@ -37,6 +37,12 @@ const {
     operationalEvent: {
       create: vi.fn(),
     },
+    contactAnswer: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+      update: vi.fn(),
+    },
   },
   mockSendPrivateReply: vi.fn(),
   mockSendPrivateReplyWithLinkButton: vi.fn(),
@@ -240,6 +246,12 @@ beforeEach(() => {
     workspaceId: "workspace_123",
   });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
+  // No pending collect-data question and collectDataEnabled off by default —
+  // tests that need the collect-data flow set these explicitly.
+  mockPrisma.contactAnswer.findFirst.mockResolvedValue(null);
+  mockPrisma.contactAnswer.findUnique.mockResolvedValue(null);
+  mockPrisma.contactAnswer.upsert.mockResolvedValue({});
+  mockPrisma.contactAnswer.update.mockResolvedValue({});
   mockDecryptToken.mockReturnValue("decrypted_token");
   mockMatchKeywords.mockReturnValue({ matched: true, matchedKeyword: "LINK" });
   mockReserveWorkspaceDMSend.mockResolvedValue({
